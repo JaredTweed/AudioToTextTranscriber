@@ -1,0 +1,6 @@
+# ─── models directory ───────────────────────────────────────────
+# ignore everything under models/ …
+models/*
+
+# …except the one file we want to keep in Git
+!models/ggml-tiny.bin
