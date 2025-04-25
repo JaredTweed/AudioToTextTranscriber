@@ -43,8 +43,8 @@ class WhisperWindow(Gtk.Window):
         self.current_proc    = None
 
         # list of models shown in drop-down
-        self.desired_models = ["tiny.en","tiny","base.en","base","small.en","small",
-                               "medium.en","medium","large-v1","large-v2","large-v3",
+        self.desired_models = ["tiny","tiny.en","base","base.en","small","small.en",
+                               "medium","medium.en","large-v1","large-v2","large-v3",
                                "large-v3-turbo"]
 
         # ─── UI layout ------------------------------------------------------
@@ -241,41 +241,43 @@ class WhisperWindow(Gtk.Window):
     # add / remove / browse --------------------------------------------------
     def on_add_audio(self, _):
         dlg = Gtk.FileChooserDialog(
-            "Select audio files", self, Gtk.FileChooserAction.OPEN,
+            "Select audio files or folders", self, Gtk.FileChooserAction.OPEN,
             (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
             "Add", Gtk.ResponseType.OK)
         )
         dlg.set_select_multiple(True)
 
-        # Allowed extensions
-        exts = (".mp3", ".wav", ".flac", ".m4a", ".ogg", ".opus")
-
-        # Filter so only audio files are shown in the list pane
-        f = Gtk.FileFilter();  f.set_name("Audio")
-        for ext in exts: f.add_pattern("*" + ext)
+        # show both audio files and directories
+        f = Gtk.FileFilter(); f.set_name("Audio or Folders")
+        for ext in ("*.mp3","*.wav","*.flac","*.m4a","*.ogg","*.opus"): f.add_pattern(ext)
+        f.add_mime_type("inode/directory")          # let folders appear
         dlg.add_filter(f)
 
-        # Reference to the OK (“Add”) button
-        add_btn = dlg.get_widget_for_response(Gtk.ResponseType.OK)
-        add_btn.set_sensitive(False)                    # start disabled
-
-        # ── helper: enable only if every selection is a valid file ────────────
-        def _validate(_chooser):
-            valid = True
-            for path in _chooser.get_filenames():
-                if not (os.path.isfile(path) and path.lower().endswith(exts)):
-                    valid = False
-                    break
-            add_btn.set_sensitive(valid)
-
-        dlg.connect("selection-changed", _validate)
-
         if dlg.run() == Gtk.ResponseType.OK:
-            for fn in dlg.get_filenames():
-                if fn.lower().endswith(exts) and os.path.isfile(fn) \
-                        and not any(r[0] == fn for r in self.audio_store):
-                    self.audio_store.append((fn,))
+            new_paths = self._collect_audio_files(dlg.get_filenames())
+            for fn in new_paths:
+                self.audio_store.append((fn,))
         dlg.destroy()
+
+    # ─── helper placed anywhere in the class (e.g. right before on_add_audio) ──
+    def _collect_audio_files(self, paths):
+        """Return a list of unique audio files beneath the given path(s)."""
+        audio_ext = (".mp3", ".wav", ".flac", ".m4a", ".ogg", ".opus")
+        found = []
+        seen  = set(r[0] for r in self.audio_store)        # already in list
+
+        def _add_if_ok(p):
+            if p.lower().endswith(audio_ext) and p not in seen:
+                found.append(p);  seen.add(p)
+
+        for p in paths:
+            if os.path.isfile(p):
+                _add_if_ok(p)
+            elif os.path.isdir(p):
+                for root, _, files in os.walk(p):
+                    for f in files:
+                        _add_if_ok(os.path.join(root, f))
+        return found
 
 
     def on_remove_audio(self, _):
