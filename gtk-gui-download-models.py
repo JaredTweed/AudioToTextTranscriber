@@ -240,17 +240,43 @@ class WhisperWindow(Gtk.Window):
 
     # add / remove / browse --------------------------------------------------
     def on_add_audio(self, _):
-        dlg = Gtk.FileChooserDialog("Select audio files", self, Gtk.FileChooserAction.OPEN,
-                                    (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "Add", Gtk.ResponseType.OK))
+        dlg = Gtk.FileChooserDialog(
+            "Select audio files", self, Gtk.FileChooserAction.OPEN,
+            (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+            "Add", Gtk.ResponseType.OK)
+        )
         dlg.set_select_multiple(True)
-        f=Gtk.FileFilter(); f.set_name("Audio")
-        for ext in ("*.mp3","*.wav","*.flac","*.m4a","*.ogg","*.opus"): f.add_pattern(ext)
+
+        # Allowed extensions
+        exts = (".mp3", ".wav", ".flac", ".m4a", ".ogg", ".opus")
+
+        # Filter so only audio files are shown in the list pane
+        f = Gtk.FileFilter();  f.set_name("Audio")
+        for ext in exts: f.add_pattern("*" + ext)
         dlg.add_filter(f)
+
+        # Reference to the OK (“Add”) button
+        add_btn = dlg.get_widget_for_response(Gtk.ResponseType.OK)
+        add_btn.set_sensitive(False)                    # start disabled
+
+        # ── helper: enable only if every selection is a valid file ────────────
+        def _validate(_chooser):
+            valid = True
+            for path in _chooser.get_filenames():
+                if not (os.path.isfile(path) and path.lower().endswith(exts)):
+                    valid = False
+                    break
+            add_btn.set_sensitive(valid)
+
+        dlg.connect("selection-changed", _validate)
+
         if dlg.run() == Gtk.ResponseType.OK:
             for fn in dlg.get_filenames():
-                if not any(r[0]==fn for r in self.audio_store):
+                if fn.lower().endswith(exts) and os.path.isfile(fn) \
+                        and not any(r[0] == fn for r in self.audio_store):
                     self.audio_store.append((fn,))
         dlg.destroy()
+
 
     def on_remove_audio(self, _):
         tv   = self.audio_view
