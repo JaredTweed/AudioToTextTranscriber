@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# Put this in the top folder of whisper.cpp
 """
 Audio-to-Text GUI for whisper.cpp – complete version
 • Drag-and-drop, multi-select, Ctrl+A, Del / Backspace, click-away deselect
@@ -32,9 +32,9 @@ class WhisperWindow(Gtk.Window):
 
         # paths / state ------------------------------------------------------
         sd = os.path.abspath(os.path.dirname(__file__))
-        self.bin_path        = os.path.join(sd, "whisper-cli")
-        self.models_dir      = os.path.join(sd, "models")
-        self.download_script = os.path.join(sd, "download-ggml-model.sh")
+        self.bin_path        = os.path.join(sd, "build/bin/whisper-cli")
+        self.models_dir      = os.path.join(sd, "downloaded-models")
+        self.download_script = os.path.join(sd, "models/download-ggml-model.sh")
         os.makedirs(self.models_dir, exist_ok=True)
 
         self.display_to_core = {}      # UI label → model core
@@ -119,6 +119,11 @@ class WhisperWindow(Gtk.Window):
 
     # update install/delete/cancel label & Transcribe enable
     def _update_model_btn(self):
+        active = self.model_combo.get_active_text()
+        if active is None:            # nothing selected yet
+            self.trans_btn.set_sensitive(False)
+            return
+
         if self.dl_info:                               # download running
             done = os.path.getsize(self.dl_info["target"]) // MB if os.path.isfile(self.dl_info["target"]) else 0
             tot  = self.dl_info["total_mb"] or "?"
@@ -126,7 +131,7 @@ class WhisperWindow(Gtk.Window):
             self.trans_btn.set_sensitive(False)
             return
 
-        core   = self.display_to_core[self.model_combo.get_active_text()]
+        core   = self.display_to_core[active]
         exists = os.path.isfile(self._model_target_path(core))
         self.model_btn.set_label("Delete Model" if exists else "Install Model")
         self.trans_btn.set_sensitive(exists)
@@ -341,10 +346,60 @@ class WhisperWindow(Gtk.Window):
         out_dir=self.out_entry.get_text().strip() or None
         if not files: return self._error("No audio files selected.")
         if not out_dir: return self._error("Choose an output folder.")
-        if not os.path.isfile(self.bin_path): return self._error("whisper-cli not found.")
+        
+        # ensure we have a whisper-cli; build it if missing
+        if not os.path.isfile(self.bin_path):
+            self.trans_btn.set_sensitive(False)
+            # run build in a background thread to avoid freezing the UI
+            def _build_and_continue():
+                success = self._ensure_whisper_cli()
+                if success:
+                    # once built, call on_transcribe again on the main thread
+                    GLib.idle_add(self.on_transcribe, _)
+                GLib.idle_add(self.trans_btn.set_sensitive, True)
+            threading.Thread(target=_build_and_continue, daemon=True).start()
+            return
 
         self.cancel_flag=False; self.trans_btn.set_label("Cancel"); self._red(self.trans_btn)
         threading.Thread(target=self._worker,args=(model_path,files,out_dir),daemon=True).start()
+
+    def _ensure_whisper_cli(self):
+        """If whisper-cli is missing, run cmake and build until it appears."""
+        if os.path.isfile(self.bin_path):
+            return True
+
+        # update UI
+        GLib.idle_add(self.status_lbl.set_text, "Building whisper-cli (~2 min)…")
+        try:
+            # 1) generate build files
+            res1 = subprocess.run(
+                ["cmake", "-B", "build"],
+                cwd=os.path.abspath(os.path.dirname(__file__)),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            if res1.returncode != 0:
+                raise RuntimeError(res1.stderr)
+
+            # 2) compile in Release
+            res2 = subprocess.run(
+                ["cmake", "--build", "build", "--config", "Release"],
+                cwd=os.path.abspath(os.path.dirname(__file__)),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            if res2.returncode != 0:
+                raise RuntimeError(res2.stderr)
+
+            # check again
+            if not os.path.isfile(self.bin_path):
+                raise FileNotFoundError(f"{self.bin_path} still missing after build")
+
+        except Exception as e:
+            GLib.idle_add(self._error, f"Build failed:\n{e}")
+            return False
+
+        GLib.idle_add(self.status_lbl.set_text, "Build complete.")
+        return True
+
 
     # ───────────────── background transcription worker ─────────────────────
     def _worker(self, model_path, files, out_dir):
