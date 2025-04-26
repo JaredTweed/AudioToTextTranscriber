@@ -1,0 +1,46 @@
+id:       io.github.JaredTweed.AudioToTextTranscriber
+runtime:  org.gnome.Platform
+runtime-version: '48'
+sdk:      org.gnome.Sdk
+command:  audio-to-text-transcriber
+
+finish-args:               # sandbox permissions
+  - --socket=wayland
+  - --socket=x11
+  - --device=dri
+  - --share=network
+  - --filesystem=home
+
+modules:
+  # ①  Build whisper.cpp (use master → no -lstdc++fs)
+  - name: whisper-cpp
+    buildsystem: cmake
+    config-opts:           # ← replaces the old cmake-args key
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DWHISPER_BUILD_TESTS=OFF
+      - -DBUILD_SHARED_LIBS=OFF
+    sources:
+      - type: git
+        url: https://github.com/ggml-org/whisper.cpp.git
+        branch: master        # after 2025-04-06 fix :contentReference[oaicite:3]{index=3}
+
+  # ②  Install Python code, icon, desktop file, wrapper
+  - name: app
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 ../whisper-cpp/build/bin/whisper-cli -t /app/bin
+      - install -Dm644 -t /app/share/audio-to-text-transcriber src/*.py
+      - install -Dm644 -t /app/share/audio-to-text-transcriber/models \
+            src/models/download-ggml-model.sh
+      - install -Dm755 wrapper.sh /app/bin/audio-to-text-transcriber
+      - install -Dm644 data/io.github.JaredTweed.AudioToTextTranscriber.desktop \
+            /app/share/applications/io.github.JaredTweed.AudioToTextTranscriber.desktop
+      - install -Dm644 data/icons/io.github.JaredTweed.AudioToTextTranscriber.png \
+            /app/share/icons/hicolor/128x128/apps/io.github.JaredTweed.AudioToTextTranscriber.png
+    sources:
+      - type: dir
+        path: src
+      - type: file
+        path: wrapper.sh
+      - type: dir
+        path: data

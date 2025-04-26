@@ -32,9 +32,9 @@ class WhisperWindow(Gtk.Window):
 
         # paths / state ------------------------------------------------------
         sd = os.path.abspath(os.path.dirname(__file__))
-        self.bin_path        = os.path.join(sd, "build/bin/whisper-cli")
+        self.bin_path        = os.path.join(sd, "..", "whisper.cpp", "build", "bin", "whisper-cli")
         self.models_dir      = os.path.join(sd, "downloaded-models")
-        self.download_script = os.path.join(sd, "models/download-ggml-model.sh")
+        self.download_script = os.path.join(sd, "..", "whisper.cpp", "models", "download-ggml-model.sh")
         os.makedirs(self.models_dir, exist_ok=True)
 
         self.display_to_core = {}      # UI label → model core
