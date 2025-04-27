@@ -1,3 +1,56 @@
+Below is **everything in one place**:
+
+---
+
+## 1 Source-tree layout on your workstation
+
+```
+Audio-To-Text-Transcriber/            ← project root
+├── io.github.JaredTweed.AudioToTextTranscriber.yml   ← Flatpak manifest
+├── wrapper.sh                        ← tiny launcher (executes python3 main.py)
+├── src/
+│   └── main.py                       ← the GUI you pasted
+├── data/                             ← resources copied unchanged
+│   ├── io.github.JaredTweed.AudioToTextTranscriber.desktop
+│   └── icons/
+│       └── io.github.JaredTweed.AudioToTextTranscriber.png  (128×128 PNG)
+└── whisper.cpp/                      ← git clone https://github.com/ggml-org/whisper.cpp.git
+    └── models/download-ggml-model.sh
+```
+
+---
+
+## 2 What ends up **inside the Flatpak sandbox**
+
+```
+/app
+├── bin/
+│   └── audio-to-text-transcriber              ← wrapper.sh
+└── share/
+    ├── audio-to-text-transcriber/
+    │   ├── main.py
+    │   ├── models/download-ggml-model.sh
+    │   └── whisper.cpp/build/bin/whisper-cli  ← built in Release mode
+    ├── applications/
+    │   └── io.github.JaredTweed.AudioToTextTranscriber.desktop
+    └── icons/hicolor/128x128/apps/
+        └── io.github.JaredTweed.AudioToTextTranscriber.png
+```
+
+Your Python code therefore finds:
+
+* `../whisper.cpp/build/bin/whisper-cli`  
+  and  
+* `../whisper.cpp/models/download-ggml-model.sh`
+
+exactly where it expects them.
+
+---
+
+## 3 Complete Flatpak manifest  
+`io.github.JaredTweed.AudioToTextTranscriber.yml`
+
+```yaml
 id: io.github.JaredTweed.AudioToTextTranscriber
 
 runtime: org.gnome.Platform
@@ -62,3 +115,30 @@ modules:
         path: wrapper.sh
       - type: dir    # desktop & icon
         path: data
+```
+
+### wrapper.sh (contents)
+
+```bash
+#!/usr/bin/env bash
+exec python3 /app/share/audio-to-text-transcriber/main.py "$@"
+```
+
+Make it executable:
+
+```bash
+chmod +x wrapper.sh
+```
+
+---
+
+### Build & run
+
+```bash
+flatpak-builder --user --install --force-clean build-dir \
+    io.github.JaredTweed.AudioToTextTranscriber.yml
+
+flatpak run io.github.JaredTweed.AudioToTextTranscriber
+```
+
+The GUI will open immediately; model downloads and transcriptions will work without any runtime compilation.
