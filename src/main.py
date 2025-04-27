@@ -1,4 +1,4 @@
-# Put this in the top folder of whisper.cpp
+# Put this in the same folder as whisper.cpp
 """
 Audio-to-Text GUI for whisper.cpp – complete version
 • Drag-and-drop, multi-select, Ctrl+A, Del / Backspace, click-away deselect
@@ -32,9 +32,11 @@ class WhisperWindow(Gtk.Window):
 
         # paths / state ------------------------------------------------------
         sd = os.path.abspath(os.path.dirname(__file__))
-        self.bin_path        = os.path.join(sd, "..", "whisper.cpp", "build", "bin", "whisper-cli")
+        self.repo_dir        = os.path.join(sd, "whisper.cpp")
+        self.bin_path        = os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
+        self.download_script = os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
         self.models_dir      = os.path.join(sd, "downloaded-models")
-        self.download_script = os.path.join(sd, "..", "whisper.cpp", "models", "download-ggml-model.sh")
+        
         os.makedirs(self.models_dir, exist_ok=True)
 
         self.display_to_core = {}      # UI label → model core
@@ -374,7 +376,7 @@ class WhisperWindow(Gtk.Window):
             # 1) generate build files
             res1 = subprocess.run(
                 ["cmake", "-B", "build"],
-                cwd=os.path.abspath(os.path.dirname(__file__)),
+                cwd=self.repo_dir,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
             if res1.returncode != 0:
@@ -383,7 +385,7 @@ class WhisperWindow(Gtk.Window):
             # 2) compile in Release
             res2 = subprocess.run(
                 ["cmake", "--build", "build", "--config", "Release"],
-                cwd=os.path.abspath(os.path.dirname(__file__)),
+                cwd=self.repo_dir,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
             if res2.returncode != 0:
