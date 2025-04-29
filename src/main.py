@@ -24,21 +24,27 @@ class WhisperWindow(Gtk.Window):
     # ───────────────────────── initialisation ──────────────────────────────
     def __init__(self):
         super().__init__(title="Audio-To-Text Transcriber")
+        Gtk.Settings.get_default().set_property(
+            "gtk-application-prefer-dark-theme", True
+        )
         self.set_default_size(700, 580); self.set_border_width(8)
-
-        # honour GNOME preference
-        if Gio.Settings.new("org.gnome.desktop.interface").get_string("color-scheme") == "prefer-dark":
-            Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", True)
 
         # paths / state ------------------------------------------------------
         sd = os.path.abspath(os.path.dirname(__file__))
         self.repo_dir        = os.path.join(sd, "whisper.cpp")
         self.bin_path        = os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
         self.download_script = os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
-        self.models_dir      = os.path.join(sd, "downloaded-models")
         
+        # Models Directory (flatpak compatible)
+        data_dir = os.getenv(
+            "AUDIO_TO_TEXT_TRANSCRIBER_DATA_DIR",
+            os.path.join(GLib.get_user_data_dir(), "AudioToTextTranscriber")
+        )
+        os.makedirs(data_dir, exist_ok=True)
+        self.models_dir = os.path.join(data_dir, "models")
         os.makedirs(self.models_dir, exist_ok=True)
 
+        # Current State Variables
         self.display_to_core = {}      # UI label → model core
         self.dl_info         = None    # holds dict while download runs
         self.cancel_flag     = False   # transcription cancel
