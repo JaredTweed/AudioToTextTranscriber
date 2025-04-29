@@ -1,5 +1,3 @@
-src/downloaded-models/*
-src/whisper.cpp/*
 .flatpak-builder/*
 build-dir/
 
