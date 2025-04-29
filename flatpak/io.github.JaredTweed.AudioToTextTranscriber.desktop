@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Audio-to-Text Transcriber
+Comment=Convert audio to text with Whisper.cpp
+Exec=audio-to-text-transcriber %f
+Icon=io.github.JaredTweed.AudioToTextTranscriber
+Terminal=false
+Categories=AudioVideo;Utility;

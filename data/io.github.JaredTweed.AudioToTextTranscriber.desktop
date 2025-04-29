@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Audio-To-Text Transcriber
-Exec=audio-to-text-transcriber
-Icon=io.github.JaredTweed.AudioToTextTranscriber
-Categories=AudioVideo;GNOME;Utility;
-StartupNotify=true

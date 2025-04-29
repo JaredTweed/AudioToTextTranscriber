@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+  <id>io.github.JaredTweed.AudioToTextTranscriber</id>
+  <name>Audio-to-Text Transcriber</name>
+  <summary>Convert audio to text using Whisper.cpp</summary>
+
+  <launchable type="desktop-id">io.github.JaredTweed.AudioToTextTranscriber.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      A simple GTK application that records or loads an audio file and
+      transcribes it locally with the whisper.cpp backend.
+    </p>
+  </description>
+</component>
