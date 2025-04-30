@@ -6,7 +6,7 @@ Audio-to-Text GUI for whisper.cpp – complete version
 • Drop-down updates the instant a model finishes downloading or is deleted
 """
 
-import gi, os, subprocess, threading, math
+import gi, os, subprocess, threading, math, shutil
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gio, Gdk
 
@@ -31,8 +31,8 @@ class WhisperWindow(Gtk.Window):
 
         # paths / state ------------------------------------------------------
         sd = os.path.abspath(os.path.dirname(__file__))
-        self.repo_dir        = os.path.join(sd, "whisper.cpp")
-        self.bin_path        = os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
+        self.repo_dir = os.path.join(sd, "whisper.cpp") if os.path.isdir(os.path.join(sd, "whisper.cpp")) else sd
+        self.bin_path        = (shutil.which("whisper-cli") or os.path.join(self.repo_dir, "build", "bin", "whisper-cli"))
         self.download_script = os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
         
         # Models Directory (flatpak compatible)
@@ -373,7 +373,10 @@ class WhisperWindow(Gtk.Window):
 
     def _ensure_whisper_cli(self):
         """If whisper-cli is missing, run cmake and build until it appears."""
-        if os.path.isfile(self.bin_path):
+        if shutil.which("whisper-cli"):      # If it was built by the flatpak
+            self.bin_path = shutil.which("whisper-cli")
+            return True
+        if os.path.isfile(self.bin_path):   # If it was not built by the flatpak
             return True
 
         # update UI
@@ -402,7 +405,7 @@ class WhisperWindow(Gtk.Window):
                 raise FileNotFoundError(f"{self.bin_path} still missing after build")
 
         except Exception as e:
-            GLib.idle_add(self._error, f"Build failed:\n{e}")
+            GLib.idle_add(self._error, f"Build failed:\n{e}\n{self.repo_dir}")
             return False
 
         GLib.idle_add(self.status_lbl.set_text, "Build complete.")
