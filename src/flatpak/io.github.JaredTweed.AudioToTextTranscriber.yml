@@ -1,0 +1,37 @@
+app-id: io.github.JaredTweed.AudioToTextTranscriber
+url: https://github.com/JaredTweed/Audio-To-Text-Transcriber
+runtime: org.gnome.Platform
+runtime-version: "48"
+sdk: org.gnome.Sdk
+
+command: audio-to-text-transcriber
+
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=ipc
+  - --device=dri
+  - --filesystem=home
+
+modules:
+  - name: whisper-and-py-src
+    buildsystem: cmake-ninja 
+    sources:
+      - type: archive
+        url: https://github.com/JaredTweed/Audio-To-Text-Transcriber/releases/download/v1.0.0/v1.0.0.zip
+        sha256: 6704ae490733ad1fa34f4fd1f5a53521a96e2f1dffd393dc251a9261f66a892a
+        strip-components: 1 
+
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+
+    build-commands:
+      - install -d /app/share/audio-to-text-transcriber
+      - install -Dm755 main.py /app/share/audio-to-text-transcriber/main.py
+      - install -Dm755 models/download-ggml-model.sh /app/share/audio-to-text-transcriber/models/download-ggml-model.sh
+      - install -Dm755 io.github.JaredTweed.AudioToTextTranscriber.desktop /app/share/applications/io.github.JaredTweed.AudioToTextTranscriber.desktop
+      - install -Dm644 io.github.JaredTweed.AudioToTextTranscriber.png /app/share/icons/hicolor/256x256/apps/io.github.JaredTweed.AudioToTextTranscriber.png
+      - install -Dm644 io.github.JaredTweed.AudioToTextTranscriber.metainfo.xml /app/share/metainfo/io.github.JaredTweed.AudioToTextTranscriber.metainfo.xml
+      - install -Dm755 audio-to-text-transcriber /app/bin/audio-to-text-transcriber
+      
