@@ -2,6 +2,6 @@ Transcribes audio. I use it so i can search through my audio files quickly for w
 
 ## Future things to add
 
-recording audio?
-
-Ctrl+F within the output.
+* recording audio?
+* Ctrl+F within the output.
+* GTK 3.0 -> GTK 4.0
