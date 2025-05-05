@@ -6,7 +6,7 @@ Audio-to-Text GUI for whisper.cpp – complete version
 • Drop-down updates the instant a model finishes downloading or is deleted
 """
 
-import gi, os, subprocess, threading, math, shutil
+import gi, os, subprocess, threading, shutil
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gio, Gdk
 
@@ -24,10 +24,11 @@ class WhisperWindow(Gtk.Window):
     # ───────────────────────── initialisation ──────────────────────────────
     def __init__(self):
         super().__init__(title="Audio-To-Text Transcriber")
-        Gtk.Settings.get_default().set_property(
-            "gtk-application-prefer-dark-theme", True
-        )
-        self.set_default_size(700, 580); self.set_border_width(8)
+        self.set_default_size(700, 580)
+        self.set_border_width(8)
+
+        # self._init_portal_theme()
+        self._init_gsettings_theme()
 
         # paths / state ------------------------------------------------------
         sd = os.path.abspath(os.path.dirname(__file__))
@@ -77,6 +78,42 @@ class WhisperWindow(Gtk.Window):
         self.connect("destroy", Gtk.main_quit)
         self._setup_dnd()
         self._update_model_btn()
+    
+    # def _init_portal_theme(self):
+    #     self.portal = Gio.DBusProxy.new_for_bus_sync(
+    #         Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
+    #         'org.freedesktop.portal.Desktop',
+    #         '/org/freedesktop/portal/desktop',
+    #         'org.freedesktop.portal.Settings',
+    #         None
+    #     )
+    #     self._apply_portal_theme()
+    #     self.portal.connect('g-signal', self._on_portal_signal)
+
+    def _init_gsettings_theme(self):
+        self.gsettings = Gio.Settings.new("org.gnome.desktop.interface")
+        self._apply_gsettings_theme()
+        self.gsettings.connect("changed::color-scheme", lambda *a: self._apply_gsettings_theme())
+
+    def _apply_gsettings_theme(self):
+        pref = self.gsettings.get_string("color-scheme")
+        dark = (pref == "prefer-dark")
+        Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", "prefer-dark")
+
+    # def _apply_portal_theme(self):
+    #     # Portal defines color-scheme: 0 = light, 1 = dark
+    #     variant = self.portal.get_cached_property('color-scheme')
+    #     dark = (variant and variant.unpack() == 1)
+    #     Gtk.Settings.get_default().set_property(
+    #         'gtk-application-prefer-dark-theme', dark
+    #     )
+
+    # def _on_portal_signal(self, proxy, sender_name, signal_name, params):
+    #     # We're only interested in SettingChanged(name, value)
+    #     if signal_name == 'SettingChanged':
+    #         name = params.unpack()[0]
+    #         if name == 'color-scheme':
+    #             GLib.idle_add(self._apply_portal_theme)
 
     # ─────────────────── MODEL DROPDOWN + ACTION BUTTON ────────────────────
     def _add_model_controls(self, parent):
@@ -253,10 +290,12 @@ class WhisperWindow(Gtk.Window):
 
     # add / remove / browse --------------------------------------------------
     def on_add_audio(self, _):
-        dlg = Gtk.FileChooserDialog(
-            "Select audio files or folders", self, Gtk.FileChooserAction.OPEN,
-            (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            "Add", Gtk.ResponseType.OK)
+        dlg = Gtk.FileChooserNative(
+            title="Select audio files or folders",
+            transient_for=self,
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Add",
+            cancel_label="Cancel"
         )
         dlg.set_select_multiple(True)
 
@@ -266,10 +305,9 @@ class WhisperWindow(Gtk.Window):
         f.add_mime_type("inode/directory")          # let folders appear
         dlg.add_filter(f)
 
-        if dlg.run() == Gtk.ResponseType.OK:
+        if dlg.run() in (Gtk.ResponseType.OK, Gtk.ResponseType.ACCEPT):
             new_paths = self._collect_audio_files(dlg.get_filenames())
-            for fn in new_paths:
-                self.audio_store.append((fn,))
+            for fn in new_paths: self.audio_store.append((fn,))
         dlg.destroy()
 
     # ─── helper placed anywhere in the class (e.g. right before on_add_audio) ──
