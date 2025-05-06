@@ -5,3 +5,9 @@ Transcribes audio. I use it so i can search through my audio files quickly for w
 * recording audio?
 * Ctrl+F within the output.
 * GTK 3.0 -> GTK 4.0
+
+## Creating AppImage (in progress)
+```
+./build-appimage.sh 2>&1 | tee build.log
+./Audio-to-Text_Transcriber-1.0.1-x86_64.AppImage
+```
