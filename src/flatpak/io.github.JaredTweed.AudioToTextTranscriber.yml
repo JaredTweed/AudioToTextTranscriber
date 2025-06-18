@@ -11,10 +11,13 @@ finish-args:
   - --socket=fallback-x11
   - --share=ipc
   - --device=dri
-
+  - --filesystem=xdg-run/gvfs
+  - --filesystem=xdg-music
+  - --filesystem=xdg-download
+  
 modules:
   - name: whisper-and-py-src
-    buildsystem: cmake-ninja 
+    buildsystem: cmake-ninja
     sources:
       - type: archive
         url: https://github.com/JaredTweed/AudioToTextTranscriber/releases/download/v1.0.1/v1.0.1.zip
