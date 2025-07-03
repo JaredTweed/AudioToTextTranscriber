@@ -1,5 +1,0 @@
-[Runtime]
-name=io.github.JaredTweed.AudioToTextTranscriber.Debug
-
-[ExtensionOf]
-ref=app/io.github.JaredTweed.AudioToTextTranscriber/x86_64/master
