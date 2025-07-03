@@ -157,7 +157,7 @@ class WhisperApp(Adw.Application):
         self.trans_btn.connect("clicked", self.on_transcribe)
         review_content.append(self.trans_btn)
 
-        add_more_button = Gtk.Button(label="Add More...")
+        add_more_button = Gtk.Button(label="Add Audio Files")
         add_more_button.connect("clicked", self.on_add_audio)
         review_content.append(add_more_button)
 
@@ -352,7 +352,7 @@ class WhisperApp(Adw.Application):
         model_label_key.set_halign(Gtk.Align.START)
         model_label_key.set_hexpand(True)
         model_box.append(model_label_key)
-        model_label_value = Gtk.Label(label=self._get_model_name())
+        model_label_value = Gtk.Label(label=self._display_name(self._get_model_name()))
         model_label_value.set_halign(Gtk.Align.START)
         model_box.append(model_label_value)
         model_settings_btn = Gtk.Button()
@@ -790,6 +790,13 @@ class WhisperApp(Adw.Application):
     def _model_target_path(self, core):
         return os.path.join(self.models_dir, f"ggml-{core}.bin")
 
+    def _display_name(self, core: str) -> str:
+        """Return the human-readable label that corresponds to *core*.
+        Falls back to the core string itself if no match is found."""
+        return next((
+            label for label, c in self.display_to_core.items() if c == core
+        ), core)
+
     def _update_model_btn(self):
         selected_index = self.model_combo.get_selected() if self.model_combo else Gtk.INVALID_LIST_POSITION
         if selected_index == Gtk.INVALID_LIST_POSITION or self.model_strings.get_n_items() == 0:
@@ -836,10 +843,11 @@ class WhisperApp(Adw.Application):
             self.model_btn.set_label("Delete Model" if exists else "Install Model")
         if hasattr(self, 'trans_btn'):
             self.trans_btn.set_sensitive(exists)
+            name = self._display_name(core)
             if exists:
-                self.status_lbl.set_label(f"Model: {core}, Destination: {self.output_directory or 'Not set'}")
+                self.status_lbl.set_label(f"Model: {name}, Destination: {self.output_directory or 'Not set'}")
             else:
-                self.status_lbl.set_label(f"Model: {core}, Go to settings to download")
+                self.status_lbl.set_label(f"Model: {name}, Go to settings to download")
         return True
 
     def on_model_btn(self, _):
@@ -864,8 +872,9 @@ class WhisperApp(Adw.Application):
         if not core:
             return
         target = self._model_target_path(core)
+        name = self._display_name(core)
         if os.path.isfile(target):
-            self._yes_no(f"Delete model '{core}'?", lambda confirmed: self._on_delete_model(confirmed, target, core))
+            self._yes_no(f"Delete model '{name}'?", lambda confirmed: self._on_delete_model(confirmed, target, core))
             return
         self._start_download(core)
 
@@ -875,7 +884,8 @@ class WhisperApp(Adw.Application):
         try:
             if os.path.isfile(target):
                 os.remove(target)
-                GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {core}")
+                name = self._display_name(core)
+                GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {name}")
                 GLib.idle_add(self._refresh_model_menu)
                 GLib.idle_add(self._update_model_btn)
             else:
@@ -889,7 +899,8 @@ class WhisperApp(Adw.Application):
         family = core.split(".", 1)[0].split("-")[0]
         total_mb = MODEL_SIZE_MB.get(family, None)
         self.dl_info = {"core": core, "target": target, "total_mb": total_mb, "done_mb": 0}
-        self.status_lbl.set_label(f"Starting download for “{core}”...")
+        name = self._display_name(core)
+        self.status_lbl.set_label(f"Starting download for “{name}”...")
         self._update_model_btn()
         threading.Thread(target=self._download_model_thread, args=(core,), daemon=True).start()
         GLib.timeout_add(500, self._poll_download_progress)
@@ -934,8 +945,9 @@ class WhisperApp(Adw.Application):
         cancelled = self.dl_info.get("cancelled", False)
         target = self.dl_info["target"]
         core = self.dl_info["core"]
+        name = self._display_name(core)
         if cancelled or self.cancel_flag:
-            self.status_lbl.set_label(f"Download cancelled for “{core}”.")
+            self.status_lbl.set_label(f"Download cancelled for “{name}”.")
             if os.path.isfile(target):
                 try:
                     os.remove(target)
@@ -947,9 +959,9 @@ class WhisperApp(Adw.Application):
             if not success or (expected_mb and abs(actual_mb - expected_mb) > 5):
                 if os.path.isfile(target):
                     os.remove(target)
-                self._error(f"Failed to download model “{core}”.")
+                self._error(f"Failed to download model “{name}”.")
             else:
-                self.status_lbl.set_label(f"Model “{core}” installed.")
+                self.status_lbl.set_label(f"Model “{name}” installed.")
         self.dl_info = None
         self.cancel_flag = False
         self._refresh_model_menu()
@@ -968,14 +980,21 @@ class WhisperApp(Adw.Application):
             actual_mb = os.path.getsize(target) // MB if os.path.isfile(target) else 0
             if expected_mb and abs(actual_mb - expected_mb) > 5:
                 success = False
-                GLib.idle_add(self._error, f"Model {self.dl_info['core']} size mismatch: expected {expected_mb} MB, got {actual_mb} MB")
+                # GLib.idle_add(self._error, f"Model {self.dl_info['core']} size mismatch: expected {expected_mb} MB, got {actual_mb} MB")
+                bad = self._display_name(self.dl_info['core'])
+                GLib.idle_add(self._error, f"Model {bad} size mismatch: expected {expected_mb} MB, got {actual_mb} MB")
+
                 if os.path.isfile(target):
                     os.remove(target)
         if not success and os.path.isfile(target):
             os.remove(target)
-            GLib.idle_add(self._error, f"Failed to download model “{self.dl_info['core']}”.")
+            # GLib.idle_add(self._error, f"Failed to download model “{self.dl_info['core']}”.")
+            name = self._display_name(self.dl_info['core'])
+            GLib.idle_add(self._error, f"Failed to download model “{name}”.")
+
         else:
-            GLib.idle_add(self.status_lbl.set_label, f"Model “{self.dl_info['core']}” installed.")
+            # GLib.idle_add(self.status_lbl.set_label, f"Model “{self.dl_info['core']}” installed.")
+            GLib.idle_add(self.status_lbl.set_label, f"Model “{self._display_name(self.dl_info['core'])}” installed.")
         self.dl_info = None
         GLib.idle_add(self._refresh_model_menu)
         GLib.idle_add(self._update_model_btn)
@@ -1133,7 +1152,7 @@ class WhisperApp(Adw.Application):
     def _browse_out_settings(self, button):
         dialog = Gtk.FileDialog()
         dialog.set_title("Select Output Directory")
-        parent = getattr(self, 'settings_dialog', None) or self.window
+        parent = self.window
 
         def on_folder_selected(dialog, result):
             try:
@@ -1288,7 +1307,8 @@ class WhisperApp(Adw.Application):
                     GLib.idle_add(self.update_status_card, "error")
                 else:
                     self.current_proc.stderr.close()
-                    dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
+                    # dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
+                    dest = os.path.join(out_dir, filename + ".txt")
                     def _save():
                         if file_data and 'buffer' in file_data and file_data['buffer']:
                             txt = file_data['buffer'].get_text(
@@ -1361,7 +1381,8 @@ class WhisperApp(Adw.Application):
             if selected_index != Gtk.INVALID_LIST_POSITION:
                 active = self.model_strings.get_string(selected_index)
                 core = self.display_to_core.get(active, "None")
-                msg = f"Idle, Model: {core}"
+                name = self._display_name(core)
+                msg = f"Idle, Model: {name}"
         GLib.idle_add(self.status_lbl.set_label, msg)
 
     def _reset_btn(self):
