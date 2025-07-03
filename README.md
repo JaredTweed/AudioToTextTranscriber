@@ -1,14 +1,20 @@
-feel free to make edits and contributions via pull requests. this is open source.
+feel free to make edits and contributions via pull requests. this is **open source**.
 
 Transcribes audio. I use it so i can search through my audio files quickly for work; either using ctrl+F in a text editor, or uploading the txt file to AI.
 
-## Future things to add
+## Future things to add/fix
 
-* recording audio?
+* recording audio? (doesn't work at all for me, maybe it will be abandoned, we will decide later).
 * Ctrl+F within the output.
-* GTK 3.0 -> GTK 4.0
+* Show transcription as it is transcribing (likely will only work if the audio has timestamps).
+* Error in selecting output directory from the home page rather from settings (you can open the file manager, but not select any folders).
+* Sometimes there is an error that will prevent you from opening the file manager from the settings page.
+* allow draging files into desired order.
+* Avoid retranscribing already transcribed files.
+* have the smallest model installed by default
 
-## Creating AppImage (in progress)
+
+## Creating AppImage (in progress) (likely will switch to only flatpak if possible).
 ```
 ./build-appimage.sh 2>&1 | tee build.log
 ./Audio-to-Text_Transcriber-1.0.1-x86_64.AppImage
