@@ -331,7 +331,7 @@ class WhisperApp(Adw.Application):
             self.live_trans_button.set_size_request(300, 60)
             live_button_content = Adw.ButtonContent(
                 label="Start Live Transcription",
-                icon_name="mic-symbolic"
+                icon_name="audio-input-microphone-symbolic"
             )
             self.live_trans_button.set_child(live_button_content)
             self.live_trans_button.add_css_class("suggested-action")
@@ -396,7 +396,7 @@ class WhisperApp(Adw.Application):
         output_label_value.set_halign(Gtk.Align.START)
         output_box.append(output_label_value)
         output_open_btn = Gtk.Button()
-        output_open_btn.set_icon_name("folder-visiting-symbolic")
+        output_open_btn.set_icon_name("folder-open-symbolic")
         output_open_btn.set_valign(Gtk.Align.CENTER)
         output_open_btn.add_css_class("flat")
         output_open_btn.set_tooltip_text("Open output directory")
@@ -436,6 +436,11 @@ class WhisperApp(Adw.Application):
         file_row.set_title(filename)
         file_row.set_subtitle(os.path.dirname(file_path) or "Local File")
 
+        # 1) First add the status icon (nearest the text)
+        status_icon = Gtk.Image()
+        file_row.add_suffix(status_icon)
+
+        # 2) Then add the trash button (furthest right)
         remove_btn = Gtk.Button()
         remove_btn.set_icon_name("user-trash-symbolic")
         remove_btn.set_valign(Gtk.Align.CENTER)
@@ -445,9 +450,7 @@ class WhisperApp(Adw.Application):
         file_row.add_suffix(remove_btn)
         remove_btn.connect("clicked", self._on_remove_file, file_path)
 
-        progress_widget = Gtk.Image.new_from_icon_name("hourglass-symbolic")
-        file_row.add_suffix(progress_widget)
-
+        # Prepare a text buffer/view for showing logs
         output_buffer = Gtk.TextBuffer()
         output_view = Gtk.TextView.new_with_buffer(output_buffer)
         output_view.set_editable(False)
@@ -455,15 +458,15 @@ class WhisperApp(Adw.Application):
         output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
 
         file_data = {
-            'row': file_row,
+            'row':        file_row,
             'remove_btn': remove_btn,
-            'icon': progress_widget,
-            'filename': filename,
-            'path': file_path,
-            'status': 'waiting',
-            'buffer': output_buffer,
-            'view': output_view,
-            'is_viewed': False
+            'icon':       status_icon,
+            'filename':   filename,
+            'path':       file_path,
+            'status':     'waiting',
+            'buffer':     output_buffer,
+            'view':       output_view,
+            'is_viewed':  False
         }
         self.progress_items.append(file_data)
 
@@ -471,6 +474,7 @@ class WhisperApp(Adw.Application):
         file_row.connect('activated', lambda r: self.show_file_details(file_data))
         self.files_group.add(file_row)
         GLib.idle_add(self.update_status_card)
+
         return file_data
 
     def _on_remove_file(self, button, file_path):
@@ -540,7 +544,7 @@ class WhisperApp(Adw.Application):
             status_page.set_child(spinner)
             status_page.set_description("Transcribing...")
         elif file_data['status'] == 'completed':
-            status_page.set_icon_name("emoji-body-symbolic")
+            status_page.set_icon_name("checkbox-checked-symbolic")
             status_page.set_description("Transcription completed")
             if file_data['buffer'] and file_data['buffer'].get_char_count() > 0:
                 output_box = self.create_output_widget(file_data)
@@ -583,28 +587,34 @@ class WhisperApp(Adw.Application):
         return scrolled
 
     def update_file_status(self, file_data, status, message=""):
-        file_data['status'] = status
+        row        = file_data['row']
+        old_icon   = file_data['icon']
+        remove_btn = file_data['remove_btn']
+
+        # remove the old status icon (never the trash)
+        row.remove(old_icon)
+
         if status == 'processing':
-            spinner = Gtk.Spinner()
-            spinner.set_spinning(True)
-            file_data['row'].remove(file_data['icon'])
-            file_data['row'].add_suffix(spinner)
-            file_data['icon'] = spinner
+            new_icon = Gtk.Spinner()
+            new_icon.set_spinning(True)
         else:
-            icon_name = {
-                'waiting': 'hourglass-symbolic',
-                'completed': 'emblem-ok-symbolic',
-                'error': 'dialog-error-symbolic'
+            name = {
+                'waiting':   'hourglass-symbolic',
+                'completed': None, #'radio-checked-symbolic', #'checkbox-checked-symbolic',
+                'cancelled': 'process-stop-symbolic',
+                'error':     'dialog-error-symbolic',
             }.get(status, 'hourglass-symbolic')
-            if isinstance(file_data['icon'], Gtk.Spinner):
-                file_data['row'].remove(file_data['icon'])
-                file_data['icon'] = Gtk.Image.new_from_icon_name(icon_name)
-                file_data['row'].add_suffix(file_data['icon'])
-            else:
-                file_data['icon'].set_from_icon_name(icon_name)
-        file_data['row'].set_subtitle(message or status.title())
-        if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() == "details":
-            self.show_file_details(file_data)
+            new_icon = Gtk.Image.new_from_icon_name(name)
+
+        # Keep the “status-icon | trash” order
+        row.remove(remove_btn)
+        row.add_suffix(new_icon)
+        row.add_suffix(remove_btn)
+
+        file_data['icon'] = new_icon
+        file_data['status'] = status
+        row.set_subtitle(message or status.title())
+
 
     def add_log_text(self, file_data, text):
         if file_data['buffer']:
@@ -624,7 +634,7 @@ class WhisperApp(Adw.Application):
     def on_live_transcription(self, button):
         if self.live_transcribing:
             self.stop_live_transcription()
-            button.set_child(Adw.ButtonContent(label="Start Live Transcription", icon_name="mic-symbolic"))
+            button.set_child(Adw.ButtonContent(label="Start Live Transcription", icon_name="audio-input-microphone-symbolic"))
             self._green(button)
             self.live_status_label.set_label("Live transcription stopped")
         else:
@@ -827,9 +837,9 @@ class WhisperApp(Adw.Application):
         if hasattr(self, 'trans_btn'):
             self.trans_btn.set_sensitive(exists)
             if exists:
-                self.status_lbl.set_label(f"Model: {core} in use")
+                self.status_lbl.set_label(f"Model: {core}, Destination: {self.output_directory or 'Not set'}")
             else:
-                self.status_lbl.set_label(f"Model: {core}, Goto settings to download")
+                self.status_lbl.set_label(f"Model: {core}, Go to settings to download")
         return True
 
     def on_model_btn(self, _):
@@ -1612,7 +1622,7 @@ class WhisperApp(Adw.Application):
         if response == "stop":
             self.stop_live_transcription()
             if self.live_trans_button:
-                self.live_trans_button.set_child(Adw.ButtonContent(label="Start Live Transcription", icon_name="mic-symbolic"))
+                self.live_trans_button.set_child(Adw.ButtonContent(label="Start Live Transcription", icon_name="audio-input-microphone-symbolic"))
                 self._green(self.live_trans_button)
             self.live_status_label.set_label("Live transcription stopped")
             self.navigation_view.pop()
