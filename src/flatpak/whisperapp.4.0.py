@@ -547,7 +547,7 @@ class WhisperApp(Adw.Application):
             status_page.set_child(spinner)
             status_page.set_description("Transcribing...")
         elif file_data['status'] == 'completed':
-            status_page.set_icon_name("emoji-body-symbolic")
+            status_page.set_icon_name("checkbox-checked-symbolic")
             status_page.set_description("Transcription completed")
             if file_data['buffer'] and file_data['buffer'].get_char_count() > 0:
                 output_box = self.create_output_widget(file_data)
@@ -701,40 +701,6 @@ class WhisperApp(Adw.Application):
                 GLib.idle_add(self._show_file_content, file_data)
             else:
                 GLib.idle_add(self.show_file_details, file_data)
-
-
-    # def update_file_status(self, file_data, status, message=""):
-    #     file_data['status'] = status
-    #     if status == 'processing':
-    #         spinner = Gtk.Spinner()
-    #         spinner.set_spinning(True)
-    #         file_data['row'].remove(file_data['icon'])
-    #         file_data['row'].add_suffix(spinner)
-    #         file_data['icon'] = spinner
-    #     else:
-    #         icon_name = {
-    #             'waiting': 'hourglass-symbolic',
-    #             'completed': None, #'radio-checked-symbolic', #'checkbox-checked-symbolic',
-    #             'error': 'dialog-error-symbolic',
-    #             'skipped': 'dialog-information-symbolic'
-    #         }.get(status, 'hourglass-symbolic')
-    #         if isinstance(file_data['icon'], Gtk.Spinner):
-    #             file_data['row'].remove(file_data['icon'])
-    #             file_data['icon'] = Gtk.Image.new_from_icon_name(icon_name)
-    #             file_data['row'].add_suffix(file_data['icon'])
-    #         else:
-    #             file_data['icon'].set_from_icon_name(icon_name)
-    #     file_data['row'].set_subtitle(message or status.title())
-        
-    #     if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
-    #         if file_data['status'] == 'completed':
-    #             GLib.idle_add(self._show_file_content, file_data)
-    #         else:
-    #             GLib.idle_add(self.show_file_details, file_data)
-
-    #     # Keep the trash button at the end
-    #     row.remove(file_data['remove_btn'])
-    #     row.add_suffix(file_data['remove_btn'])
 
     def add_log_text(self, file_data, text):
         if file_data['buffer']:
