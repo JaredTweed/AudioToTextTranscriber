@@ -142,5 +142,6 @@ modules:
     build-commands:
       - mkdir -p /app/bin 
 
+      - install -Dm755 main.py audio-to-text-transcriber /app/bin
 
       - install -Dm755 main.py audio-to-text-transcriber /app/bin
