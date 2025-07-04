@@ -4,12 +4,7 @@ import subprocess
 import threading
 import yaml
 import shutil
-import sounddevice as sd
-import wave
-import tempfile
 from pathlib import Path
-from queue import Queue
-from datetime import datetime
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject
@@ -39,6 +34,7 @@ class WhisperApp(Adw.Application):
             "AUDIO_TO_TEXT_TRANSCRIBER_DATA_DIR",
             os.path.join(GLib.get_user_data_dir(), "AudioToTextTranscriber")
         )
+
         os.makedirs(data_dir, exist_ok=True)
         self.models_dir = os.path.join(data_dir, "models")
         os.makedirs(self.models_dir, exist_ok=True)
@@ -56,17 +52,11 @@ class WhisperApp(Adw.Application):
         self.navigation_view = None
         self.header_bar = None
         self.back_button = None
-        self.live_trans_button = None  # Reference to live transcription button
-        # Live transcription variables
-        self.live_transcribing = False
-        self.audio_queue = Queue()
-        self.temp_audio_dir = tempfile.mkdtemp()
-        self.live_transcription_buffer = None
-        self.live_transcription_view = None
-        self.audio_stream = None
+        self.add_more_button = None
         self.connect('startup', self.do_startup)
         self.connect('activate', self.do_activate)
         self.create_action("settings", self.on_settings)
+        self.setup_transcripts_listbox()  # Initialize transcripts listbox
 
     def load_settings(self):
         self.theme_index = 0
@@ -157,9 +147,9 @@ class WhisperApp(Adw.Application):
         self.trans_btn.connect("clicked", self.on_transcribe)
         review_content.append(self.trans_btn)
 
-        add_more_button = Gtk.Button(label="Add Audio Files")
-        add_more_button.connect("clicked", self.on_add_audio)
-        review_content.append(add_more_button)
+        self.add_more_button = Gtk.Button(label="Add More...")
+        self.add_more_button.connect("clicked", self.on_add_audio)
+        review_content.append(self.add_more_button)
 
         self.files_group = Adw.PreferencesGroup()
         self.files_group.set_title("Audio Files")
@@ -189,45 +179,50 @@ class WhisperApp(Adw.Application):
         details_page.set_child(details_scrolled)
         self.navigation_view.add(details_page)
 
-        # Live Transcription Page
-        live_page = Adw.NavigationPage()
-        live_page.set_title("Live Transcription")
-        live_page.set_tag("live")
-        live_scrolled = Gtk.ScrolledWindow()
-        live_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        live_scrolled.set_vexpand(True)
-        live_scrolled.set_hexpand(True)
+        # File Content Page
+        content_page = Adw.NavigationPage()
+        content_page.set_title("File Content")
+        content_page.set_tag("file_content")
+        content_scrolled = Gtk.ScrolledWindow()
+        content_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        content_scrolled.set_vexpand(True)
+        content_scrolled.set_hexpand(True)
+        content_page.set_child(content_scrolled)
+        self.navigation_view.add(content_page)
 
-        live_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        live_content.set_margin_start(12)
-        live_content.set_margin_end(12)
-        live_content.set_margin_top(12)
-        live_content.set_margin_bottom(12)
+        # Transcripts Page
+        transcripts_page = Adw.NavigationPage()
+        transcripts_page.set_title("Transcripts")
+        transcripts_page.set_tag("transcripts")
+        transcripts_scrolled = Gtk.ScrolledWindow()
+        transcripts_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        transcripts_scrolled.set_vexpand(True)
+        transcripts_scrolled.set_hexpand(True)
 
-        self.live_transcription_buffer = Gtk.TextBuffer()
-        self.live_transcription_view = Gtk.TextView.new_with_buffer(self.live_transcription_buffer)
-        self.live_transcription_view.set_editable(False)
-        self.live_transcription_view.set_monospace(True)
-        self.live_transcription_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.live_transcription_view.set_vexpand(True)
-        self.live_transcription_view.set_hexpand(True)
+        transcripts_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        transcripts_content.set_margin_start(12)
+        transcripts_content.set_margin_end(12)
+        transcripts_content.set_margin_top(6)
+        transcripts_content.set_margin_bottom(6)
 
-        scrolled_text = Gtk.ScrolledWindow()
-        scrolled_text.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_text.set_child(self.live_transcription_view)
-        scrolled_text.set_vexpand(True)
-        scrolled_text.add_css_class("card")
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search in transcripts...")
+        self.search_entry.set_hexpand(True)
+        self.search_entry.connect("search-changed", self.on_search_changed)
+        transcripts_content.append(self.search_entry)
 
-        live_content.append(scrolled_text)
+        self.transcripts_group = Gtk.ListBox()
+        self.transcripts_group.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.transcripts_group.add_css_class("boxed-list")
+        self.transcripts_group.set_margin_start(12)
+        self.transcripts_group.set_margin_end(12)
+        transcripts_content.append(self.transcripts_group)
 
-        self.live_status_label = Gtk.Label(label="Ready to start live transcription")
-        live_content.append(self.live_status_label)
-
-        live_content_clamp = Adw.Clamp()
-        live_content_clamp.set_child(live_content)
-        live_scrolled.set_child(live_content_clamp)
-        live_page.set_child(live_scrolled)
-        self.navigation_view.add(live_page)
+        transcripts_content_clamp = Adw.Clamp()
+        transcripts_content_clamp.set_child(transcripts_content)
+        transcripts_scrolled.set_child(transcripts_content_clamp)
+        transcripts_page.set_child(transcripts_scrolled)
+        self.navigation_view.add(transcripts_page)
 
         self.navigation_view.connect("pushed", self._on_navigation_pushed)
         self.navigation_view.connect("popped", self._on_navigation_popped)
@@ -238,25 +233,19 @@ class WhisperApp(Adw.Application):
     def _on_navigation_pushed(self, navigation_view, *args):
         tag = navigation_view.get_visible_page().get_tag()
         self._update_navigation_buttons(tag)
+        if tag == "transcripts":
+            self._update_transcripts_list("")
 
     def _on_navigation_popped(self, navigation_view, *args):
         tag = navigation_view.get_visible_page().get_tag()
         self._update_navigation_buttons(tag)
+        if tag == "transcripts":
+            self._update_transcripts_list(self.search_entry.get_text().strip())
 
     def _update_navigation_buttons(self, tag):
-        if tag == "welcome":
-            self.revert_button.set_visible(False)
-            self.back_button.set_visible(False)
-        elif tag == "review":
-            self.back_button.set_visible(False)
-            self.revert_button.set_visible(True)
-        elif tag == "details":
-            self.revert_button.set_visible(False)
-            self.back_button.set_visible(True)
-            self.back_button.set_label("< Back")
-        elif tag == "live":
-            self.revert_button.set_visible(False)
-            self.back_button.set_visible(True)
+        self.revert_button.set_visible(tag in ("review", "transcripts"))
+        self.back_button.set_visible(tag in ("details", "transcript_details", "file_content"))
+        if self.back_button.get_visible():
             self.back_button.set_label("< Back")
 
     def _on_icon_dnd_drop(self, drop_target, value, x, y, button):
@@ -295,10 +284,14 @@ class WhisperApp(Adw.Application):
                 self.status_card.set_title("Transcription Error")
                 self.status_card.set_icon_name("dialog-error-symbolic")
                 description = "An error occurred during transcription."
+            elif transcription_status == "skipped":
+                self.status_card.set_title("Files Skipped")
+                self.status_card.set_icon_name("dialog-information-symbolic")
+                description = "Some files were skipped due to existing transcriptions."
         else:
             self.status_card.set_title("Audio-To-Text Transcriber")
             self.status_card.set_icon_name("audio-x-generic-symbolic")
-            description = "Select audio files or folders to transcribe, or start live transcription."
+            description = "Select audio files or folders to transcribe."
 
         self.status_card.set_description(description)
 
@@ -307,7 +300,7 @@ class WhisperApp(Adw.Application):
         main_content_box.set_margin_bottom(12)
 
         if not transcription_status:
-            button_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            button_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             button_container.set_halign(Gtk.Align.CENTER)
             button_container.set_margin_top(6)
             button_container.set_margin_bottom(12)
@@ -327,18 +320,27 @@ class WhisperApp(Adw.Application):
             add_files_button.add_controller(drop_target)
             button_container.append(add_files_button)
 
-            self.live_trans_button = Gtk.Button()
-            self.live_trans_button.set_size_request(300, 60)
-            live_button_content = Adw.ButtonContent(
-                label="Start Live Transcription",
-                icon_name="audio-input-microphone-symbolic"
+            transcripts_button = Gtk.Button()
+            transcripts_button.set_size_request(300, 60)
+            transcripts_content = Adw.ButtonContent(
+                label="Open Transcripts",
+                icon_name="document-open-symbolic"
             )
-            self.live_trans_button.set_child(live_button_content)
-            self.live_trans_button.add_css_class("suggested-action")
-            self.live_trans_button.add_css_class("pill")
-            self.live_trans_button.connect("clicked", self.on_live_transcription)
-            button_container.append(self.live_trans_button)
+            transcripts_button.set_child(transcripts_content)
+            transcripts_button.add_css_class("suggested-action")
+            transcripts_button.add_css_class("pill")
+            transcripts_button.connect("clicked", lambda btn: self.navigation_view.push_by_tag("transcripts"))
 
+            out_dir = self.output_directory or os.path.expanduser("~/Downloads")
+            has_txt_files = False
+            if os.path.isdir(out_dir):
+                for root, _, files in os.walk(out_dir):
+                    if any(file.endswith(".txt") for file in files):
+                        has_txt_files = True
+                        break
+            transcripts_button.set_sensitive(has_txt_files)
+
+            button_container.append(transcripts_button)
             main_content_box.append(button_container)
 
         settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -352,7 +354,7 @@ class WhisperApp(Adw.Application):
         model_label_key.set_halign(Gtk.Align.START)
         model_label_key.set_hexpand(True)
         model_box.append(model_label_key)
-        model_label_value = Gtk.Label(label=self._display_name(self._get_model_name()))
+        model_label_value = Gtk.Label(label=self._get_model_name())
         model_label_value.set_halign(Gtk.Align.START)
         model_box.append(model_label_value)
         model_settings_btn = Gtk.Button()
@@ -396,7 +398,7 @@ class WhisperApp(Adw.Application):
         output_label_value.set_halign(Gtk.Align.START)
         output_box.append(output_label_value)
         output_open_btn = Gtk.Button()
-        output_open_btn.set_icon_name("folder-open-symbolic")
+        output_open_btn.set_icon_name("folder-visiting-symbolic")
         output_open_btn.set_valign(Gtk.Align.CENTER)
         output_open_btn.add_css_class("flat")
         output_open_btn.set_tooltip_text("Open output directory")
@@ -436,11 +438,6 @@ class WhisperApp(Adw.Application):
         file_row.set_title(filename)
         file_row.set_subtitle(os.path.dirname(file_path) or "Local File")
 
-        # 1) First add the status icon (nearest the text)
-        status_icon = Gtk.Image()
-        file_row.add_suffix(status_icon)
-
-        # 2) Then add the trash button (furthest right)
         remove_btn = Gtk.Button()
         remove_btn.set_icon_name("user-trash-symbolic")
         remove_btn.set_valign(Gtk.Align.CENTER)
@@ -450,7 +447,9 @@ class WhisperApp(Adw.Application):
         file_row.add_suffix(remove_btn)
         remove_btn.connect("clicked", self._on_remove_file, file_path)
 
-        # Prepare a text buffer/view for showing logs
+        progress_widget = Gtk.Image.new_from_icon_name("hourglass-symbolic")
+        file_row.add_suffix(progress_widget)
+
         output_buffer = Gtk.TextBuffer()
         output_view = Gtk.TextView.new_with_buffer(output_buffer)
         output_view.set_editable(False)
@@ -458,23 +457,22 @@ class WhisperApp(Adw.Application):
         output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
 
         file_data = {
-            'row':        file_row,
+            'row': file_row,
             'remove_btn': remove_btn,
-            'icon':       status_icon,
-            'filename':   filename,
-            'path':       file_path,
-            'status':     'waiting',
-            'buffer':     output_buffer,
-            'view':       output_view,
-            'is_viewed':  False
+            'icon': progress_widget,
+            'filename': filename,
+            'path': file_path,
+            'status': 'waiting',
+            'buffer': output_buffer,
+            'view': output_view,
+            'is_viewed': False
         }
         self.progress_items.append(file_data)
 
         file_row.set_activatable(True)
-        file_row.connect('activated', lambda r: self.show_file_details(file_data))
+        file_row.connect('activated', lambda r: self._show_file_content(file_data) if file_data['status'] == 'completed' else self.show_file_details(file_data))
         self.files_group.add(file_row)
         GLib.idle_add(self.update_status_card)
-
         return file_data
 
     def _on_remove_file(self, button, file_path):
@@ -515,7 +513,7 @@ class WhisperApp(Adw.Application):
                 break
         if not self.progress_items and self.navigation_view.get_visible_page().get_tag() != "welcome":
             self.navigation_view.pop_to_tag("welcome")
-        if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() == "details":
+        if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
             self.navigation_view.pop()
         GLib.idle_add(self.update_status_card)
 
@@ -544,7 +542,7 @@ class WhisperApp(Adw.Application):
             status_page.set_child(spinner)
             status_page.set_description("Transcribing...")
         elif file_data['status'] == 'completed':
-            status_page.set_icon_name("checkbox-checked-symbolic")
+            status_page.set_icon_name("emoji-body-symbolic")
             status_page.set_description("Transcription completed")
             if file_data['buffer'] and file_data['buffer'].get_char_count() > 0:
                 output_box = self.create_output_widget(file_data)
@@ -552,6 +550,9 @@ class WhisperApp(Adw.Application):
         elif file_data['status'] == 'error':
             status_page.set_icon_name("dialog-error-symbolic")
             status_page.set_description("Error occurred during transcription")
+        elif file_data['status'] == 'skipped':
+            status_page.set_icon_name("dialog-information-symbolic")
+            status_page.set_description("Transcription skipped due to existing file")
         else:
             status_page.set_icon_name("audio-x-generic-symbolic")
             status_page.set_description(f"Location: {os.path.dirname(file_data['path'])}")
@@ -564,6 +565,74 @@ class WhisperApp(Adw.Application):
         if self.navigation_view.get_visible_page().get_tag() != "details":
             self.navigation_view.push(details_page)
         GLib.idle_add(self._update_navigation_buttons, "details")
+
+    def _show_file_content(self, file_data):
+        for item in self.progress_items:
+            item['is_viewed'] = False
+        file_data['is_viewed'] = True
+
+        content_page = self.navigation_view.find_page("file_content")
+        content_scrolled = content_page.get_child()
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_start(12)
+        content_box.set_margin_end(12)
+        content_box.set_margin_top(12)
+        content_box.set_margin_bottom(12)
+
+        status_page = Adw.StatusPage()
+        status_page.set_title(file_data['filename'])
+        status_page.set_icon_name("text-x-generic-symbolic")
+
+        if file_data['buffer'] and file_data['buffer'].get_char_count() > 0:
+            buffer = Gtk.TextBuffer()
+            text = file_data['buffer'].get_text(
+                file_data['buffer'].get_start_iter(),
+                file_data['buffer'].get_end_iter(),
+                False
+            )
+            lines = text.splitlines()
+            text_with_numbers = ""
+            for i, line in enumerate(lines, 1):
+                text_with_numbers += f"{i:4d} | {line}\n"
+            buffer.set_text(text_with_numbers)
+
+            text_view = Gtk.TextView.new_with_buffer(buffer)
+            text_view.set_editable(False)
+            text_view.set_monospace(True)
+            text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            text_view.set_margin_start(12)
+            text_view.set_margin_end(12)
+            text_view.set_margin_top(12)
+            text_view.set_margin_bottom(12)
+
+            scrolled_view = Gtk.ScrolledWindow()
+            scrolled_view.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scrolled_view.set_vexpand(True)
+            scrolled_view.set_hexpand(True)
+            scrolled_view.set_size_request(400, 300)
+            scrolled_view.set_child(text_view)
+            scrolled_view.add_css_class("card")
+
+            open_btn = Gtk.Button()
+            open_btn.set_icon_name("folder-open-symbolic")
+            open_btn.set_valign(Gtk.Align.CENTER)
+            open_btn.add_css_class("flat")
+            open_btn.set_tooltip_text("Open transcript in default editor")
+            open_btn.connect("clicked", lambda btn: self._open_transcript_file(file_data['path']))
+
+            status_page.set_child(scrolled_view)
+            content_box.append(status_page)
+            content_box.append(open_btn)
+        else:
+            status_page.set_description("No transcription content available.")
+
+        content_clamp = Adw.Clamp()
+        content_clamp.set_child(content_box)
+        content_scrolled.set_child(content_clamp)
+
+        if self.navigation_view.get_visible_page().get_tag() != "file_content":
+            self.navigation_view.push(content_page)
+        GLib.idle_add(self._update_navigation_buttons, "file_content")
 
     def create_output_widget(self, file_data):
         scrolled = Gtk.ScrolledWindow()
@@ -587,182 +656,40 @@ class WhisperApp(Adw.Application):
         return scrolled
 
     def update_file_status(self, file_data, status, message=""):
-        row        = file_data['row']
-        old_icon   = file_data['icon']
-        remove_btn = file_data['remove_btn']
-
-        # remove the old status icon (never the trash)
-        row.remove(old_icon)
-
-        if status == 'processing':
-            new_icon = Gtk.Spinner()
-            new_icon.set_spinning(True)
-        else:
-            name = {
-                'waiting':   'hourglass-symbolic',
-                'completed': None, #'radio-checked-symbolic', #'checkbox-checked-symbolic',
-                'cancelled': 'process-stop-symbolic',
-                'error':     'dialog-error-symbolic',
-            }.get(status, 'hourglass-symbolic')
-            new_icon = Gtk.Image.new_from_icon_name(name)
-
-        # Keep the “status-icon | trash” order
-        row.remove(remove_btn)
-        row.add_suffix(new_icon)
-        row.add_suffix(remove_btn)
-
-        file_data['icon'] = new_icon
         file_data['status'] = status
-        row.set_subtitle(message or status.title())
-
+        if status == 'processing':
+            spinner = Gtk.Spinner()
+            spinner.set_spinning(True)
+            file_data['row'].remove(file_data['icon'])
+            file_data['row'].add_suffix(spinner)
+            file_data['icon'] = spinner
+        else:
+            icon_name = {
+                'waiting': 'hourglass-symbolic',
+                'completed': 'emblem-ok-symbolic',
+                'error': 'dialog-error-symbolic',
+                'skipped': 'dialog-information-symbolic'
+            }.get(status, 'hourglass-symbolic')
+            if isinstance(file_data['icon'], Gtk.Spinner):
+                file_data['row'].remove(file_data['icon'])
+                file_data['icon'] = Gtk.Image.new_from_icon_name(icon_name)
+                file_data['row'].add_suffix(file_data['icon'])
+            else:
+                file_data['icon'].set_from_icon_name(icon_name)
+        file_data['row'].set_subtitle(message or status.title())
+        if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
+            if file_data['status'] == 'completed':
+                GLib.idle_add(self._show_file_content, file_data)
+            else:
+                GLib.idle_add(self.show_file_details, file_data)
 
     def add_log_text(self, file_data, text):
         if file_data['buffer']:
             end_iter = file_data['buffer'].get_end_iter()
             file_data['buffer'].insert(end_iter, text + "\n")
-            if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() == "details":
+            if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
                 mark = file_data['buffer'].get_insert()
                 file_data['view'].scroll_mark_onscreen(mark)
-
-    def add_live_transcription_text(self, text):
-        if self.live_transcription_buffer:
-            end_iter = self.live_transcription_buffer.get_end_iter()
-            self.live_transcription_buffer.insert(end_iter, text + "\n")
-            mark = self.live_transcription_buffer.get_insert()
-            self.live_transcription_view.scroll_mark_onscreen(mark)
-
-    def on_live_transcription(self, button):
-        if self.live_transcribing:
-            self.stop_live_transcription()
-            button.set_child(Adw.ButtonContent(label="Start Live Transcription", icon_name="audio-input-microphone-symbolic"))
-            self._green(button)
-            self.live_status_label.set_label("Live transcription stopped")
-        else:
-            selected_index = self.model_combo.get_selected()
-            if selected_index == Gtk.INVALID_LIST_POSITION:
-                self._error("No model selected in settings.")
-                return
-            core = self.display_to_core.get(self.model_strings.get_string(selected_index))
-            if not core:
-                self._error("Invalid model selection.")
-                return
-            model_path = self._model_target_path(core)
-            if not os.path.isfile(model_path):
-                self._error("Model not installed. Install it in settings.")
-                return
-            self.start_live_transcription(model_path, core)
-            button.set_child(Adw.ButtonContent(label="Stop Live Transcription", icon_name="media-playback-stop-symbolic"))
-            self._red(button)
-            self.live_status_label.set_label("Live transcription running...")
-            self.navigation_view.push_by_tag("live")
-
-    def start_live_transcription(self, model_path, core):
-        self.live_transcribing = True
-        self.cancel_flag = False
-        try:
-            devices = sd.query_devices()
-            GLib.idle_add(self._error, f"Available devices:\n{devices}")
-            input_device = None
-            for device in devices:
-                if device['max_input_channels'] > 0 and 'pulse' in device['name'].lower():
-                    input_device = device['index']
-                    break
-            if input_device is None:
-                for device in devices:
-                    if device['max_input_channels'] > 0 and 'default' in device['name'].lower():
-                        input_device = device['index']
-                        break
-            if input_device is None:
-                GLib.idle_add(self._error, f"No input device found. Available devices:\n{devices}")
-                self.live_transcribing = False
-                return
-            self.audio_stream = sd.InputStream(
-                callback=self._audio_callback,
-                dtype='int16',
-                channels=1,
-                samplerate=16000,
-                blocksize=16000*5,
-                device=input_device
-            )
-            self.audio_stream.start()
-            GLib.idle_add(self._error, f"Using input device: {sd.query_devices(input_device)['name']}")
-            threading.Thread(target=self._process_audio, args=(model_path, core), daemon=True).start()
-        except Exception as e:
-            GLib.idle_add(self._error, f"Failed to start audio stream: {e}")
-            self.live_transcribing = False
-
-    def stop_live_transcription(self):
-        self.live_transcribing = False
-        self.cancel_flag = True
-        if self.audio_stream:
-            try:
-                self.audio_stream.stop()
-                self.audio_stream.close()
-                self.audio_stream = None
-            except Exception as e:
-                GLib.idle_add(self._error, f"Failed to stop audio stream: {e}")
-        while not self.audio_queue.empty():
-            try:
-                audio_file = self.audio_queue.get_nowait()
-                if os.path.exists(audio_file):
-                    os.remove(audio_file)
-            except Exception:
-                pass
-        if os.path.exists(self.temp_audio_dir):
-            try:
-                shutil.rmtree(self.temp_audio_dir)
-            except Exception:
-                pass
-        self.temp_audio_dir = tempfile.mkdtemp()
-
-    def _audio_callback(self, indata, frames, time, status):
-        if status:
-            GLib.idle_add(self._error, f"Audio stream status: {status}")
-        if not self.live_transcribing:
-            return
-        temp_file = os.path.join(self.temp_audio_dir, f"chunk_{datetime.now().timestamp()}.wav")
-        with wave.open(temp_file, 'wb') as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(16000)
-            wav_file.writeframes(indata.tobytes())
-        self.audio_queue.put(temp_file)
-
-    def _process_audio(self, model_path, core):
-        while self.live_transcribing or not self.audio_queue.empty():
-            if self.cancel_flag:
-                break
-            try:
-                audio_file = self.audio_queue.get(timeout=1)
-                output_filename = os.path.splitext(audio_file)[0]
-                cmd = [self.bin_path, "-m", model_path, "-f", audio_file]
-                if not self.ts_enabled:
-                    cmd.append("-nt")
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                    errors='replace'
-                )
-                transcription = ""
-                for line in proc.stdout:
-                    transcription += line.rstrip() + "\n"
-                proc.stdout.close()
-                proc.wait()
-                if proc.returncode == 0:
-                    GLib.idle_add(self.add_live_transcription_text, transcription)
-                else:
-                    error = proc.stderr.read().strip()
-                    proc.stderr.close()
-                    GLib.idle_add(self._error, f"Transcription error: {error}")
-                os.remove(audio_file)
-                self.audio_queue.task_done()
-            except Exception as e:
-                if not self.cancel_flag:
-                    GLib.idle_add(self._error, f"Processing error: {e}")
-        self.audio_queue.queue.clear()
 
     def on_about(self, action, param):
         about = Adw.AboutWindow(
@@ -772,7 +699,7 @@ class WhisperApp(Adw.Application):
             version="1.0",
             developers=["Jared Tweed", "Mohammed Asif Ali Rizvan"],
             license_type=Gtk.License.GPL_3_0,
-            comments="A GUI for whisper.cpp to transcribe audio files and live microphone input.",
+            comments="A GUI for whisper.cpp to transcribe audio files.",
             website="https://github.com/your-repo"
         )
         about.present()
@@ -789,13 +716,6 @@ class WhisperApp(Adw.Application):
 
     def _model_target_path(self, core):
         return os.path.join(self.models_dir, f"ggml-{core}.bin")
-
-    def _display_name(self, core: str) -> str:
-        """Return the human-readable label that corresponds to *core*.
-        Falls back to the core string itself if no match is found."""
-        return next((
-            label for label, c in self.display_to_core.items() if c == core
-        ), core)
 
     def _update_model_btn(self):
         selected_index = self.model_combo.get_selected() if self.model_combo else Gtk.INVALID_LIST_POSITION
@@ -842,13 +762,12 @@ class WhisperApp(Adw.Application):
         if self.model_btn:
             self.model_btn.set_label("Delete Model" if exists else "Install Model")
         if hasattr(self, 'trans_btn'):
-            self.trans_btn.set_sensitive(exists)
-            name = self._display_name(core)
+            self.trans_btn.set_sensitive(exists and not self.dl_info)
             if exists:
-                self.status_lbl.set_label(f"Model: {name}, Destination: {self.output_directory or 'Not set'}")
+                self.status_lbl.set_label(f"Model: {core} in use")
             else:
-                self.status_lbl.set_label(f"Model: {name}, Go to settings to download")
-        return True
+                self.status_lbl.set_label(f"Model: {core}, Goto settings to download")
+        return exists
 
     def on_model_btn(self, _):
         if self.dl_info:
@@ -872,9 +791,8 @@ class WhisperApp(Adw.Application):
         if not core:
             return
         target = self._model_target_path(core)
-        name = self._display_name(core)
         if os.path.isfile(target):
-            self._yes_no(f"Delete model '{name}'?", lambda confirmed: self._on_delete_model(confirmed, target, core))
+            self._yes_no(f"Delete model '{core}'?", lambda confirmed: self._on_delete_model(confirmed, target, core))
             return
         self._start_download(core)
 
@@ -884,8 +802,7 @@ class WhisperApp(Adw.Application):
         try:
             if os.path.isfile(target):
                 os.remove(target)
-                name = self._display_name(core)
-                GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {name}")
+                GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {core}")
                 GLib.idle_add(self._refresh_model_menu)
                 GLib.idle_add(self._update_model_btn)
             else:
@@ -899,8 +816,7 @@ class WhisperApp(Adw.Application):
         family = core.split(".", 1)[0].split("-")[0]
         total_mb = MODEL_SIZE_MB.get(family, None)
         self.dl_info = {"core": core, "target": target, "total_mb": total_mb, "done_mb": 0}
-        name = self._display_name(core)
-        self.status_lbl.set_label(f"Starting download for “{name}”...")
+        self.status_lbl.set_label(f"Starting download for “{core}”...")
         self._update_model_btn()
         threading.Thread(target=self._download_model_thread, args=(core,), daemon=True).start()
         GLib.timeout_add(500, self._poll_download_progress)
@@ -945,9 +861,8 @@ class WhisperApp(Adw.Application):
         cancelled = self.dl_info.get("cancelled", False)
         target = self.dl_info["target"]
         core = self.dl_info["core"]
-        name = self._display_name(core)
         if cancelled or self.cancel_flag:
-            self.status_lbl.set_label(f"Download cancelled for “{name}”.")
+            self.status_lbl.set_label(f"Download cancelled for “{core}”.")
             if os.path.isfile(target):
                 try:
                     os.remove(target)
@@ -959,9 +874,9 @@ class WhisperApp(Adw.Application):
             if not success or (expected_mb and abs(actual_mb - expected_mb) > 5):
                 if os.path.isfile(target):
                     os.remove(target)
-                self._error(f"Failed to download model “{name}”.")
+                self._error(f"Failed to download model “{core}”.")
             else:
-                self.status_lbl.set_label(f"Model “{name}” installed.")
+                self.status_lbl.set_label(f"Model “{core}” installed.")
         self.dl_info = None
         self.cancel_flag = False
         self._refresh_model_menu()
@@ -980,21 +895,14 @@ class WhisperApp(Adw.Application):
             actual_mb = os.path.getsize(target) // MB if os.path.isfile(target) else 0
             if expected_mb and abs(actual_mb - expected_mb) > 5:
                 success = False
-                # GLib.idle_add(self._error, f"Model {self.dl_info['core']} size mismatch: expected {expected_mb} MB, got {actual_mb} MB")
-                bad = self._display_name(self.dl_info['core'])
-                GLib.idle_add(self._error, f"Model {bad} size mismatch: expected {expected_mb} MB, got {actual_mb} MB")
-
+                GLib.idle_add(self._error, f"Model {self.dl_info['core']} size mismatch: expected {expected_mb} MB, got {actual_mb} MB")
                 if os.path.isfile(target):
                     os.remove(target)
         if not success and os.path.isfile(target):
             os.remove(target)
-            # GLib.idle_add(self._error, f"Failed to download model “{self.dl_info['core']}”.")
-            name = self._display_name(self.dl_info['core'])
-            GLib.idle_add(self._error, f"Failed to download model “{name}”.")
-
+            GLib.idle_add(self._error, f"Failed to download model “{self.dl_info['core']}”.")
         else:
-            # GLib.idle_add(self.status_lbl.set_label, f"Model “{self.dl_info['core']}” installed.")
-            GLib.idle_add(self.status_lbl.set_label, f"Model “{self._display_name(self.dl_info['core'])}” installed.")
+            GLib.idle_add(self.status_lbl.set_label, f"Model “{self.dl_info['core']}” installed.")
         self.dl_info = None
         GLib.idle_add(self._refresh_model_menu)
         GLib.idle_add(self._update_model_btn)
@@ -1123,12 +1031,12 @@ class WhisperApp(Adw.Application):
             dialog.add_response("cancel", "Cancel")
             dialog.add_response("remove", "Stop and Remove All")
             dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
-            dialog.connect("response", lambda d, r: self._on_remove_all_response(r))
+            dialog.connect("response", lambda d, r: self._on_remove_all_response(d, r))
             dialog.present(self.window)
         else:
             self._remove_all_files()
 
-    def _on_remove_all_response(self, response):
+    def _on_remove_all_response(self, dialog, response):
         if response == "remove":
             self.cancel_flag = True
             if self.current_proc and self.current_proc.poll() is None:
@@ -1152,7 +1060,6 @@ class WhisperApp(Adw.Application):
     def _browse_out_settings(self, button):
         dialog = Gtk.FileDialog()
         dialog.set_title("Select Output Directory")
-        parent = self.window
 
         def on_folder_selected(dialog, result):
             try:
@@ -1165,7 +1072,7 @@ class WhisperApp(Adw.Application):
             except Exception as e:
                 print(f"Error selecting folder: {e}")
 
-        dialog.select_folder(parent, None, on_folder_selected)
+        dialog.select_folder(self.window, None, on_folder_selected)
 
     def _save_output_directory(self, path):
         self.output_directory = path
@@ -1227,20 +1134,48 @@ class WhisperApp(Adw.Application):
             self._error("Choose a valid output folder in settings.")
             return
 
-        if not os.path.isfile(self.bin_path):
-            self.trans_btn.set_sensitive(False)
-            self.model_btn.set_label("No Model Selected, Goto Settings!")
-            def _build_and_continue():
-                success = self._ensure_whisper_cli()
-                if success:
-                    GLib.idle_add(self.on_transcribe, None)
-                GLib.idle_add(self.trans_btn.set_sensitive, True)
-            threading.Thread(target=_build_and_continue, daemon=True).start()
-            return
+        # Check for conflicting files
+        conflicting_files = []
+        non_conflicting_files = []
+        for file_path in files:
+            filename = os.path.basename(file_path)
+            dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
+            if os.path.isfile(dest) and os.path.getsize(dest) > 0:
+                conflicting_files.append(file_path)
+            else:
+                non_conflicting_files.append(file_path)
 
+        if conflicting_files:
+            dialog = Adw.AlertDialog(
+                heading="Existing Transcriptions",
+                body=f"There are {len(conflicting_files)} files with existing non-empty transcriptions. What do you want to do?"
+            )
+            dialog.add_response("overwrite", "Overwrite All")
+            dialog.add_response("skip", "Skip Conflicting")
+            dialog.add_response("cancel", "Cancel")
+            dialog.set_response_appearance("overwrite", Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.connect("response", lambda d, r: self._on_conflict_response(r, conflicting_files, non_conflicting_files, model_path, out_dir, core))
+            dialog.present(self.window)
+        else:
+            self._start_transcription(files, model_path, out_dir, core)
+
+    def _on_conflict_response(self, response, conflicting_files, non_conflicting_files, model_path, out_dir, core):
+        if response == "overwrite":
+            files_to_transcribe = non_conflicting_files + conflicting_files
+            self._start_transcription(files_to_transcribe, model_path, out_dir, core)
+        elif response == "skip":
+            for file_path in conflicting_files:
+                file_data = next((item for item in self.progress_items if item['path'] == file_path), None)
+                if file_data:
+                    GLib.idle_add(self.update_file_status, file_data, 'skipped', "Skipped due to existing transcription")
+            self._start_transcription(non_conflicting_files, model_path, out_dir, core)
+        # Cancel does nothing
+
+    def _start_transcription(self, files, model_path, out_dir, core):
         self.cancel_flag = False
         self.trans_btn.set_label("Cancel")
         self._red(self.trans_btn)
+        GLib.idle_add(self.add_more_button.set_visible, False)
         GLib.idle_add(self.update_status_card, "started")
         if self.navigation_view.get_visible_page().get_tag() != "review":
             GLib.idle_add(self.navigation_view.push_by_tag, "review")
@@ -1248,15 +1183,8 @@ class WhisperApp(Adw.Application):
 
     def _worker(self, model_path, files, out_dir, core):
         total = len(files)
-        idx = 1
-        while idx <= total:
+        for idx, file_path in enumerate(files, 1):
             if self.cancel_flag:
-                self.cancel_flag = False
-                idx += 1
-                continue
-            file_path = self.audio_store.get_string(idx - 1) if idx - 1 < self.audio_store.get_n_items() else None
-            if not file_path:
-                idx += 1
                 continue
             filename = os.path.basename(file_path)
             self._gui_status(f"{idx}/{total} – {filename}")
@@ -1264,7 +1192,6 @@ class WhisperApp(Adw.Application):
             file_data = next((item for item in self.progress_items if item['path'] == file_path), None)
             if not file_data or 'buffer' not in file_data or not file_data['buffer']:
                 GLib.idle_add(self._error, f"Invalid or missing file_data for {filename}")
-                idx += 1
                 continue
 
             GLib.idle_add(self.update_file_status, file_data, 'processing', f"Transcribing ({idx}/{total})...")
@@ -1307,8 +1234,7 @@ class WhisperApp(Adw.Application):
                     GLib.idle_add(self.update_status_card, "error")
                 else:
                     self.current_proc.stderr.close()
-                    # dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
-                    dest = os.path.join(out_dir, filename + ".txt")
+                    dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
                     def _save():
                         if file_data and 'buffer' in file_data and file_data['buffer']:
                             txt = file_data['buffer'].get_text(
@@ -1321,15 +1247,21 @@ class WhisperApp(Adw.Application):
                         return False
                     GLib.idle_add(_save)
                     GLib.idle_add(self.update_file_status, file_data, 'completed', "Completed successfully")
-            idx += 1
+                    GLib.idle_add(self.update_status_card)
 
         if self.cancel_flag:
             self._gui_status("Cancelled")
             GLib.idle_add(self.update_status_card, "cancelled")
+            GLib.idle_add(self._reset_btn)
         else:
             self._gui_status("Done")
             GLib.idle_add(self.update_status_card, "completed")
-        GLib.idle_add(self._reset_btn)
+            GLib.idle_add(self.trans_btn.set_label, "Transcription Complete")
+            GLib.idle_add(self.trans_btn.set_sensitive, False)
+            GLib.idle_add(self.add_more_button.set_label, "View Transcriptions")
+            GLib.idle_add(self.add_more_button.set_visible, True)
+            GLib.idle_add(self.add_more_button.disconnect_by_func, self.on_add_audio)
+            GLib.idle_add(self.add_more_button.connect, "clicked", lambda btn: self.navigation_view.push_by_tag("transcripts"))
 
     def _ensure_whisper_cli(self):
         if shutil.which("whisper-cli"):
@@ -1381,13 +1313,25 @@ class WhisperApp(Adw.Application):
             if selected_index != Gtk.INVALID_LIST_POSITION:
                 active = self.model_strings.get_string(selected_index)
                 core = self.display_to_core.get(active, "None")
-                name = self._display_name(core)
-                msg = f"Idle, Model: {name}"
+                msg = f"Idle, Model: {core}"
         GLib.idle_add(self.status_lbl.set_label, msg)
 
     def _reset_btn(self):
         self.trans_btn.set_label("Transcribe")
         self._green(self.trans_btn)
+        self.trans_btn.set_sensitive(self._update_model_btn())
+        if self.add_more_button:
+            self.add_more_button.set_label("Add More...")
+            self.add_more_button.set_visible(True)
+            try:
+                self.add_more_button.disconnect_by_func(lambda btn: self.navigation_view.push_by_tag("transcripts"))
+            except:
+                pass
+            try:
+                self.add_more_button.disconnect_by_func(self.on_add_audio)
+            except:
+                pass
+            self.add_more_button.connect("clicked", self.on_add_audio)
 
     def _yes_no(self, msg, callback):
         parent = getattr(self, 'settings_dialog', None) or self.window
@@ -1509,12 +1453,15 @@ class WhisperApp(Adw.Application):
 
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data("""
-            listview > row:selected {
+            listbox > row:selected {
                 background-color: transparent;
                 color: inherit;
             }
             spinner {
                 -gtk-icon-size: 16px;
+            }
+            .highlight {
+                background-color: yellow;
             }
         """.encode('utf-8'))
         Gtk.StyleContext.add_provider_for_display(
@@ -1597,10 +1544,11 @@ class WhisperApp(Adw.Application):
             dialog.add_response("no", "No, Continue")
             dialog.add_response("yes", "Yes, Cancel and Remove All")
             dialog.set_response_appearance("yes", Adw.ResponseAppearance.DESTRUCTIVE)
-            dialog.connect("response", self._on_cancel_transcription_response)
+            dialog.connect("response", lambda d, r: self._on_cancel_transcription_response(d, r))
             dialog.present(self.window)
-        elif current_tag in ("details", "live"):
-            self.navigation_view.pop()
+        elif current_tag in ("details", "transcripts", "transcript_details", "file_content"):
+            self.navigation_view.pop_to_tag("welcome")
+            GLib.idle_add(self._reset_btn)
 
     def _on_cancel_transcription_response(self, dialog, response):
         if response == "yes":
@@ -1613,40 +1561,19 @@ class WhisperApp(Adw.Application):
                         self.current_proc.wait(timeout=2)
                     except subprocess.TimeoutExpired:
                         self.current_proc.kill()
-            self._remove_all_files_and_revert_back()
-        # If response is "no", stay on review page
-
-    def _remove_all_files_and_revert_back(self):
-        self._remove_all_files()
-        self.status_lbl.set_text("Files Removed")
-        self.navigation_view.pop_to_tag("welcome")
+            self._remove_all_files()
+            self.navigation_view.pop_to_tag("welcome")
+            GLib.idle_add(self._reset_btn)
 
     def _on_back_clicked(self):
         current_tag = self.navigation_view.get_visible_page().get_tag()
         if current_tag == "review":
             self.navigation_view.pop_to_tag("welcome")
-        elif current_tag in ("details", "live"):
-            if current_tag == "live" and self.live_transcribing:
-                dialog = Adw.AlertDialog(
-                    heading="Stop Live Transcription?",
-                    body="Live transcription is running. Stop it and return?",
-                )
-                dialog.add_response("cancel", "Cancel")
-                dialog.add_response("stop", "Stop and Return")
-                dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
-                dialog.connect("response", lambda d, r: self._on_stop_live_response(r))
-                dialog.present(self.window)
-            else:
-                self.navigation_view.pop()
-
-    def _on_stop_live_response(self, response):
-        if response == "stop":
-            self.stop_live_transcription()
-            if self.live_trans_button:
-                self.live_trans_button.set_child(Adw.ButtonContent(label="Start Live Transcription", icon_name="audio-input-microphone-symbolic"))
-                self._green(self.live_trans_button)
-            self.live_status_label.set_label("Live transcription stopped")
+            GLib.idle_add(self._reset_btn)
+        elif current_tag in ("details", "transcript_details"):
             self.navigation_view.pop()
+        elif current_tag == "file_content":
+            self.navigation_view.pop_to_tag("review")
 
     def _on_next_clicked(self):
         current_tag = self.navigation_view.get_visible_page().get_tag()
@@ -1721,6 +1648,208 @@ class WhisperApp(Adw.Application):
                     break
         self.save_settings()
 
+    def _clear_listbox(self, listbox):
+        print("Clearing listbox")  # Debug
+        try:
+            while True:
+                child = listbox.get_first_child()
+                if child is None:
+                    break
+                listbox.remove(child)
+            print("Listbox cleared successfully")  # Debug
+        except Exception as e:
+            print(f"Error clearing listbox: {e}")  # Debug
+
+    def _load_transcripts(self):
+        print("_load_transcripts called")  # Debug
+        self._update_transcripts_list("")
+
+    def setup_transcripts_listbox(self):
+        print("Setting up transcripts listbox")  # Debug
+        if hasattr(self, 'transcripts_group') and self.transcripts_group is not None:
+            self.transcripts_group.connect("row-activated", self._on_transcript_row_activated)
+            print("Connected row-activated signal")  # Debug
+        else:
+            print("transcripts_group not found or is None")  # Debug
+
+    def _on_transcript_row_activated(self, listbox, row):
+        print("Transcript row activated")  # Debug
+        file_path = getattr(row, 'file_path', None)
+        print(f"File path: {file_path}")  # Debug
+        if file_path:
+            self._show_transcript(file_path)
+        else:
+            print("No file path found for row")  # Debug
+
+    def _show_transcript(self, file_path):
+        print(f"_show_transcript called with: {file_path}")  # Debug
+        if not os.path.exists(file_path):
+            print(f"File does not exist: {file_path}")  # Debug
+            return
+
+        transcript_page = Adw.NavigationPage()
+        transcript_page.set_title(os.path.basename(file_path))
+        transcript_page.set_tag("transcript_details")
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.set_margin_start(12)
+        content.set_margin_end(12)
+        content.set_margin_top(12)
+        content.set_margin_bottom(12)
+
+        status_page = Adw.StatusPage()
+        status_page.set_title(os.path.basename(file_path))
+        status_page.set_icon_name("text-x-generic-symbolic")
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            print(f"Read {len(lines)} lines from {file_path}")  # Debug
+
+            buffer = Gtk.TextBuffer()
+            highlight_tag = buffer.create_tag("highlight", background="yellow")
+            search_text = self.search_entry.get_text().strip().lower()
+
+            text_with_numbers = ""
+            for i, line in enumerate(lines, 1):
+                text_with_numbers += f"{i:4d} | {line}"
+            buffer.set_text(text_with_numbers)
+
+            if search_text:
+                text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False).lower()
+                start_pos = 0
+                while True:
+                    start_pos = text.find(search_text, start_pos)
+                    if start_pos == -1:
+                        break
+                    start_iter = buffer.get_iter_at_offset(start_pos)
+                    end_iter = buffer.get_iter_at_offset(start_pos + len(search_text))
+                    buffer.apply_tag(highlight_tag, start_iter, end_iter)
+                    start_pos += len(search_text)
+
+            output_box = self.create_output_widget({'buffer': buffer})
+            status_page.set_child(output_box)
+
+            open_btn = Gtk.Button()
+            open_btn.set_icon_name("folder-open-symbolic")
+            open_btn.set_valign(Gtk.Align.CENTER)
+            open_btn.add_css_class("flat")
+            open_btn.set_tooltip_text("Open transcript in default editor")
+            open_btn.connect("clicked", lambda btn: self._open_transcript_file(file_path))
+
+            content.append(status_page)
+            content.append(open_btn)
+        except Exception as e:
+            print(f"Error loading transcript: {e}")  # Debug
+            status_page.set_description(f"Error loading transcript: {e}")
+            content.append(status_page)
+
+        content_clamp = Adw.Clamp()
+        content_clamp.set_child(content)
+        scrolled.set_child(content_clamp)
+        transcript_page.set_child(scrolled)
+
+        print("Pushing transcript page")  # Debug
+        self.navigation_view.push(transcript_page)
+        print("Transcript page pushed")  # Debug
+
+    def _open_transcript_file(self, file_path):
+        try:
+            subprocess.run(["xdg-open", str(file_path)], check=True)
+        except subprocess.CalledProcessError as e:
+            GLib.idle_add(self._error, f"Failed to open transcript: {e}")
+
+    def on_search_changed(self, entry):
+        search_text = entry.get_text().strip()
+        self._update_transcripts_list(search_text)
+
+    def _update_transcripts_list(self, search_text):
+        print(f"_update_transcripts_list called with search_text: '{search_text}'")  # Debug
+        self._clear_listbox(self.transcripts_group)
+
+        out_dir = self.output_directory or os.path.expanduser("~/Downloads")
+        print(f"Looking for transcripts in: {out_dir}")  # Debug
+
+        if not os.path.isdir(out_dir):
+            print(f"Output directory does not exist: {out_dir}")  # Debug
+            self._error("Output directory is invalid.")
+            return
+
+        matches = []
+        try:
+            total_files = 0
+            txt_files = 0
+            for root, _, files in sorted(os.walk(out_dir)):
+                print(f"Checking directory: {root}")  # Debug
+                for file in sorted(files):
+                    total_files += 1
+                    if file.endswith(".txt"):
+                        txt_files += 1
+                        file_path = os.path.join(root, file)
+                        print(f"Found txt file: {file_path}")  # Debug
+                        if search_text:
+                            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                                content = f.read()
+                                if search_text.lower() in content.lower():
+                                    matches.append(file_path)
+                                    print(f"Match found: {file_path}")  # Debug
+                        else:
+                            matches.append(file_path)
+
+            print(f"Total files: {total_files}, txt files: {txt_files}, matches: {len(matches)}")  # Debug
+
+            if not matches and search_text:
+                toast = Adw.Toast(title="No matches found")
+                toast.set_timeout(3)
+                self.toast_overlay.add_toast(toast)
+
+            if not matches and not search_text:
+                print("No txt files found")  # Debug
+                row = Gtk.ListBoxRow()
+                row_content = Adw.ActionRow()
+                row_content.set_title("No transcripts found")
+                row_content.set_subtitle(f"No .txt files in {out_dir}")
+                row.set_child(row_content)
+                self.transcripts_group.append(row)
+                return
+
+            for file_path in matches:
+                print(f"Adding row for: {file_path}")  # Debug
+                row = Gtk.ListBoxRow()
+                row_content = Adw.ActionRow()
+                row_content.set_title(os.path.basename(file_path))
+                row_content.set_subtitle(file_path)
+                row.file_path = file_path  # Store file path as attribute
+
+                open_btn = Gtk.Button()
+                open_btn.set_icon_name("folder-open-symbolic")
+                open_btn.set_valign(Gtk.Align.CENTER)
+                open_btn.add_css_class("flat")
+                open_btn.set_tooltip_text("Open transcript in default editor")
+                open_btn.connect("clicked", lambda btn, path=file_path: self._open_transcript_file(path))
+                row_content.add_suffix(open_btn)
+
+                row.set_child(row_content)
+                self.transcripts_group.append(row)
+            print(f"Added {len(matches)} rows")  # Debug
+
+        except Exception as e:
+            print(f"Error in _update_transcripts_list: {e}")  # Debug
+            import traceback
+            traceback.print_exc()
+            self._error(f"Failed to load transcripts: {e}")
+
 if __name__ == "__main__":
     app = WhisperApp()
     app.run()
+
+
+
+
+
+
