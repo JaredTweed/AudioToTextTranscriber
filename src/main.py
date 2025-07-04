@@ -354,7 +354,7 @@ class WhisperApp(Adw.Application):
         model_label_key.set_halign(Gtk.Align.START)
         model_label_key.set_hexpand(True)
         model_box.append(model_label_key)
-        model_label_value = Gtk.Label(label=self._get_model_name())
+        model_label_value = Gtk.Label(label=self._display_name(self._get_model_name()))
         model_label_value.set_halign(Gtk.Align.START)
         model_box.append(model_label_value)
         model_settings_btn = Gtk.Button()
