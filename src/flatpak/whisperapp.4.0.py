@@ -147,7 +147,7 @@ class WhisperApp(Adw.Application):
         self.trans_btn.connect("clicked", self.on_transcribe)
         review_content.append(self.trans_btn)
 
-        self.add_more_button = Gtk.Button(label="Add More...")
+        self.add_more_button = Gtk.Button(label="Add Audio Files")
         self.add_more_button.connect("clicked", self.on_add_audio)
         review_content.append(self.add_more_button)
 
@@ -438,6 +438,11 @@ class WhisperApp(Adw.Application):
         file_row.set_title(filename)
         file_row.set_subtitle(os.path.dirname(file_path) or "Local File")
 
+        # 1) First add the status icon (nearest the text)
+        progress_widget = Gtk.Image()
+        file_row.add_suffix(progress_widget)
+
+        # 2) Then add the trash button (furthest right)
         remove_btn = Gtk.Button()
         remove_btn.set_icon_name("user-trash-symbolic")
         remove_btn.set_valign(Gtk.Align.CENTER)
@@ -447,8 +452,8 @@ class WhisperApp(Adw.Application):
         file_row.add_suffix(remove_btn)
         remove_btn.connect("clicked", self._on_remove_file, file_path)
 
-        progress_widget = Gtk.Image.new_from_icon_name("hourglass-symbolic")
-        file_row.add_suffix(progress_widget)
+        # progress_widget = Gtk.Image.new_from_icon_name("hourglass-symbolic")
+        # file_row.add_suffix(progress_widget)
 
         output_buffer = Gtk.TextBuffer()
         output_view = Gtk.TextView.new_with_buffer(output_buffer)
@@ -656,32 +661,80 @@ class WhisperApp(Adw.Application):
         return scrolled
 
     def update_file_status(self, file_data, status, message=""):
-        file_data['status'] = status
+        row, old_icon, remove_btn = file_data['row'], file_data['icon'], file_data['remove_btn']
+
+        # ---- safely remove the previous status widget ----
+        if old_icon and old_icon.get_parent():          # only if it’s still packed
+            row.remove(old_icon)
+
+        # ---- build the new status widget ----
         if status == 'processing':
-            spinner = Gtk.Spinner()
-            spinner.set_spinning(True)
-            file_data['row'].remove(file_data['icon'])
-            file_data['row'].add_suffix(spinner)
-            file_data['icon'] = spinner
+            new_icon = Gtk.Spinner()
+            new_icon.set_spinning(True)
         else:
             icon_name = {
-                'waiting': 'hourglass-symbolic',
-                'completed': 'emblem-ok-symbolic',
-                'error': 'dialog-error-symbolic',
-                'skipped': 'dialog-information-symbolic'
+                'waiting':   'hourglass-symbolic',
+                'completed': None,                       # show nothing
+                'cancelled': 'process-stop-symbolic',
+                'error':     'dialog-error-symbolic',
+                'skipped':   'dialog-information-symbolic',
             }.get(status, 'hourglass-symbolic')
-            if isinstance(file_data['icon'], Gtk.Spinner):
-                file_data['row'].remove(file_data['icon'])
-                file_data['icon'] = Gtk.Image.new_from_icon_name(icon_name)
-                file_data['row'].add_suffix(file_data['icon'])
-            else:
-                file_data['icon'].set_from_icon_name(icon_name)
-        file_data['row'].set_subtitle(message or status.title())
-        if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
-            if file_data['status'] == 'completed':
+
+            # None → create an empty Gtk.Image so we still have a widget to pack
+            new_icon = Gtk.Image.new_from_icon_name(icon_name)
+
+        # ---- keep the [status] [trash] order ----
+        if remove_btn.get_parent():
+            row.remove(remove_btn)
+        row.add_suffix(new_icon)
+        row.add_suffix(remove_btn)
+
+        # ---- update bookkeeping ----
+        file_data['icon']   = new_icon
+        file_data['status'] = status
+        row.set_subtitle(message or status.title())
+
+        # ---- refresh Details/File-content page if it’s open ----
+        if file_data['is_viewed'] and \
+        self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
+            if status == 'completed':
                 GLib.idle_add(self._show_file_content, file_data)
             else:
                 GLib.idle_add(self.show_file_details, file_data)
+
+
+    # def update_file_status(self, file_data, status, message=""):
+    #     file_data['status'] = status
+    #     if status == 'processing':
+    #         spinner = Gtk.Spinner()
+    #         spinner.set_spinning(True)
+    #         file_data['row'].remove(file_data['icon'])
+    #         file_data['row'].add_suffix(spinner)
+    #         file_data['icon'] = spinner
+    #     else:
+    #         icon_name = {
+    #             'waiting': 'hourglass-symbolic',
+    #             'completed': None, #'radio-checked-symbolic', #'checkbox-checked-symbolic',
+    #             'error': 'dialog-error-symbolic',
+    #             'skipped': 'dialog-information-symbolic'
+    #         }.get(status, 'hourglass-symbolic')
+    #         if isinstance(file_data['icon'], Gtk.Spinner):
+    #             file_data['row'].remove(file_data['icon'])
+    #             file_data['icon'] = Gtk.Image.new_from_icon_name(icon_name)
+    #             file_data['row'].add_suffix(file_data['icon'])
+    #         else:
+    #             file_data['icon'].set_from_icon_name(icon_name)
+    #     file_data['row'].set_subtitle(message or status.title())
+        
+    #     if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
+    #         if file_data['status'] == 'completed':
+    #             GLib.idle_add(self._show_file_content, file_data)
+    #         else:
+    #             GLib.idle_add(self.show_file_details, file_data)
+
+    #     # Keep the trash button at the end
+    #     row.remove(file_data['remove_btn'])
+    #     row.add_suffix(file_data['remove_btn'])
 
     def add_log_text(self, file_data, text):
         if file_data['buffer']:
@@ -716,6 +769,13 @@ class WhisperApp(Adw.Application):
 
     def _model_target_path(self, core):
         return os.path.join(self.models_dir, f"ggml-{core}.bin")
+
+    def _display_name(self, core: str) -> str:
+        """Return the human-readable label that corresponds to *core*.
+        Falls back to the core string itself if no match is found."""
+        return next((
+            label for label, c in self.display_to_core.items() if c == core
+        ), core)
 
     def _update_model_btn(self):
         selected_index = self.model_combo.get_selected() if self.model_combo else Gtk.INVALID_LIST_POSITION
@@ -763,10 +823,11 @@ class WhisperApp(Adw.Application):
             self.model_btn.set_label("Delete Model" if exists else "Install Model")
         if hasattr(self, 'trans_btn'):
             self.trans_btn.set_sensitive(exists and not self.dl_info)
+            name = self._display_name(core)
             if exists:
-                self.status_lbl.set_label(f"Model: {core} in use")
+                self.status_lbl.set_label(f"Model: {name}, Destination: {self.output_directory or 'Not set'}")
             else:
-                self.status_lbl.set_label(f"Model: {core}, Goto settings to download")
+                self.status_lbl.set_label(f"Model: {name}, Go to settings to download")
         return exists
 
     def on_model_btn(self, _):
@@ -791,8 +852,9 @@ class WhisperApp(Adw.Application):
         if not core:
             return
         target = self._model_target_path(core)
+        name = self._display_name(core)
         if os.path.isfile(target):
-            self._yes_no(f"Delete model '{core}'?", lambda confirmed: self._on_delete_model(confirmed, target, core))
+            self._yes_no(f"Delete model '{name}'?", lambda confirmed: self._on_delete_model(confirmed, target, core))
             return
         self._start_download(core)
 
@@ -802,7 +864,8 @@ class WhisperApp(Adw.Application):
         try:
             if os.path.isfile(target):
                 os.remove(target)
-                GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {core}")
+                name = self._display_name(core)
+                GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {name}")
                 GLib.idle_add(self._refresh_model_menu)
                 GLib.idle_add(self._update_model_btn)
             else:
@@ -816,7 +879,8 @@ class WhisperApp(Adw.Application):
         family = core.split(".", 1)[0].split("-")[0]
         total_mb = MODEL_SIZE_MB.get(family, None)
         self.dl_info = {"core": core, "target": target, "total_mb": total_mb, "done_mb": 0}
-        self.status_lbl.set_label(f"Starting download for “{core}”...")
+        name = self._display_name(core)
+        self.status_lbl.set_label(f"Starting download for “{name}”...")
         self._update_model_btn()
         threading.Thread(target=self._download_model_thread, args=(core,), daemon=True).start()
         GLib.timeout_add(500, self._poll_download_progress)
@@ -861,8 +925,9 @@ class WhisperApp(Adw.Application):
         cancelled = self.dl_info.get("cancelled", False)
         target = self.dl_info["target"]
         core = self.dl_info["core"]
+        name = self._display_name(core)
         if cancelled or self.cancel_flag:
-            self.status_lbl.set_label(f"Download cancelled for “{core}”.")
+            self.status_lbl.set_label(f"Download cancelled for “{name}”.")
             if os.path.isfile(target):
                 try:
                     os.remove(target)
@@ -874,9 +939,9 @@ class WhisperApp(Adw.Application):
             if not success or (expected_mb and abs(actual_mb - expected_mb) > 5):
                 if os.path.isfile(target):
                     os.remove(target)
-                self._error(f"Failed to download model “{core}”.")
+                self._error(f"Failed to download model “{name}”.")
             else:
-                self.status_lbl.set_label(f"Model “{core}” installed.")
+                self.status_lbl.set_label(f"Model “{name}” installed.")
         self.dl_info = None
         self.cancel_flag = False
         self._refresh_model_menu()
@@ -1139,6 +1204,8 @@ class WhisperApp(Adw.Application):
         non_conflicting_files = []
         for file_path in files:
             filename = os.path.basename(file_path)
+
+            # dest = os.path.join(out_dir, filename + ".txt")
             dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
             if os.path.isfile(dest) and os.path.getsize(dest) > 0:
                 conflicting_files.append(file_path)
@@ -1313,7 +1380,8 @@ class WhisperApp(Adw.Application):
             if selected_index != Gtk.INVALID_LIST_POSITION:
                 active = self.model_strings.get_string(selected_index)
                 core = self.display_to_core.get(active, "None")
-                msg = f"Idle, Model: {core}"
+                name = self._display_name(core)
+                msg = f"Idle, Model: {name}"
         GLib.idle_add(self.status_lbl.set_label, msg)
 
     def _reset_btn(self):
@@ -1321,7 +1389,7 @@ class WhisperApp(Adw.Application):
         self._green(self.trans_btn)
         self.trans_btn.set_sensitive(self._update_model_btn())
         if self.add_more_button:
-            self.add_more_button.set_label("Add More...")
+            self.add_more_button.set_label("Add Audio Files")
             self.add_more_button.set_visible(True)
             try:
                 self.add_more_button.disconnect_by_func(lambda btn: self.navigation_view.push_by_tag("transcripts"))

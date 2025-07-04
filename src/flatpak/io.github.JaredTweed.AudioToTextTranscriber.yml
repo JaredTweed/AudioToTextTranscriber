@@ -137,10 +137,10 @@ modules:
       - type: file
         path: audio-to-text-transcriber
       - type: file
-        path: whisperapp.4.1.py
+        path: whisperapp.4.0.py
 
     build-commands:
       - mkdir -p /app/bin 
 
 
-      - install -Dm755 whisperapp.4.1.py audio-to-text-transcriber /app/bin
+      - install -Dm755 whisperapp.4.0.py audio-to-text-transcriber /app/bin
