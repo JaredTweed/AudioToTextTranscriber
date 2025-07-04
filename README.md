@@ -4,7 +4,7 @@ Transcribes audio. I use it so i can search through my audio files quickly for w
 
 ## How to run
 
-Got to the flatpak folder, and run `./build.sh`.
+Go to the src, and run `./build.sh`.
 
 ## Future things to add/fix
 
