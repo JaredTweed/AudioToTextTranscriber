@@ -361,7 +361,7 @@ class WhisperApp(Adw.Application):
         
         # Create header bar with close button
         header_bar = Adw.HeaderBar()
-        header_bar.set_title_widget(Adw.WindowTitle(title="File Content"))
+        header_bar.set_title_widget(Adw.WindowTitle(title=file_data['filename']))
         
         toolbar_view.add_top_bar(header_bar)
 
@@ -445,7 +445,7 @@ class WhisperApp(Adw.Application):
         
         # Create header bar with close button
         header_bar = Adw.HeaderBar()
-        header_bar.set_title_widget(Adw.WindowTitle(title="Transcript Content"))
+        header_bar.set_title_widget(Adw.WindowTitle(title=transcript_data['filename']))
 
         
         toolbar_view.add_top_bar(header_bar)
