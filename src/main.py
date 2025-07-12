@@ -47,16 +47,20 @@ class WhisperApp(Adw.Application):
                               "large-v3-turbo"]
         self.audio_store = Gtk.StringList()
         self.progress_items = []
+        self.transcript_items = []
         self.files_group = None
-        self.main_content = None
-        self.navigation_view = None
-        self.header_bar = None
-        self.back_button = None
+        self.transcripts_group = None
+        self.search_entry = None
+        self.stack = None
+        self.view_switcher = None
+        self.trans_btn = None
         self.add_more_button = None
+        self.model_value_label = None
+        self.output_value_label = None
         self.connect('startup', self.do_startup)
         self.connect('activate', self.do_activate)
         self.create_action("settings", self.on_settings)
-        self.setup_transcripts_listbox()  # Initialize transcripts listbox
+        self.setup_transcripts_listbox()
 
     def load_settings(self):
         self.theme_index = 0
@@ -72,7 +76,6 @@ class WhisperApp(Adw.Application):
                 self.output_directory = settings.get('output_directory', os.path.expanduser("~/Downloads"))
                 self.ts_enabled = settings.get('include_timestamps', True)
                 self.selected_model = settings.get('model', '')
-                GLib.idle_add(self.update_status_card)
             except Exception as e:
                 self._error(f"Error loading settings: {e}")
 
@@ -87,7 +90,6 @@ class WhisperApp(Adw.Application):
         self._build_ui()
         self._setup_dnd()
         self._update_model_btn()
-        self._update_download_progress()
 
     def do_activate(self, *args):
         self.window.present()
@@ -97,338 +99,117 @@ class WhisperApp(Adw.Application):
         action.connect("activate", callback)
         self.add_action(action)
 
-    def create_navigation_ui(self, main_box):
-        self.navigation_view = Adw.NavigationView()
-        self.navigation_view.set_vexpand(True)
-        self.navigation_view.set_hexpand(True)
+    def create_view_switcher_ui(self):
+        self.stack = Adw.ViewStack()
+        self.stack.set_vexpand(True)
+        self.stack.set_hexpand(True)
 
-        # Welcome Page
-        welcome_page = Adw.NavigationPage()
-        welcome_page.set_title("Welcome")
-        welcome_page.set_tag("welcome")
-        welcome_scrolled = Gtk.ScrolledWindow()
-        welcome_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        welcome_scrolled.set_vexpand(True)
-        welcome_scrolled.set_hexpand(True)
+        # Transcribe View
+        transcribe_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        transcribe_box.set_margin_start(12)
+        transcribe_box.set_margin_end(12)
+        transcribe_box.set_margin_top(12)
+        transcribe_box.set_margin_bottom(12)
 
-        self.main_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.main_content.set_margin_start(12)
-        self.main_content.set_margin_end(12)
-        self.main_content.set_margin_top(6)
-        self.main_content.set_margin_bottom(6)
-
-        self.status_card = Adw.StatusPage()
-        self.status_card.set_title("Add Audio Files")
-        self.status_card.set_icon_name("audio-x-generic-symbolic")
-        self.update_status_card()
-        self.main_content.append(self.status_card)
-
-        welcome_scrolled.set_child(self.main_content)
-        welcome_page.set_child(welcome_scrolled)
-        self.navigation_view.add(welcome_page)
-
-        # File Review Page
-        review_page = Adw.NavigationPage()
-        review_page.set_title("Review Files")
-        review_page.set_tag("review")
-        review_scrolled = Gtk.ScrolledWindow()
-        review_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        review_scrolled.set_vexpand(True)
-        review_scrolled.set_hexpand(True)
-
-        review_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        review_content.set_margin_start(6)
-        review_content.set_margin_end(6)
-        review_content.set_margin_top(6)
-        review_content.set_margin_bottom(6)
-
+        # Transcribe Button
         self.trans_btn = Gtk.Button(label="Transcribe")
         self._green(self.trans_btn)
         self.trans_btn.connect("clicked", self.on_transcribe)
-        review_content.append(self.trans_btn)
+        transcribe_box.append(self.trans_btn)
 
+        # Reset Button
+        self.reset_btn = Gtk.Button()
+        self.reset_btn.set_icon_name("view-refresh-symbolic")
+        self.reset_btn.set_visible(False)
+        self.reset_btn.connect("clicked", self._on_reset_clicked)
+        transcribe_box.append(self.reset_btn)
+
+        # Add Audio Files Button
         self.add_more_button = Gtk.Button(label="Add Audio Files")
         self.add_more_button.connect("clicked", self.on_add_audio)
-        review_content.append(self.add_more_button)
+        transcribe_box.append(self.add_more_button)
 
+        # Files Group
         self.files_group = Adw.PreferencesGroup()
         self.files_group.set_title("Audio Files")
         self.files_group.set_description("Review files to be transcribed")
-        review_content.append(self.files_group)
+        transcribe_box.append(self.files_group)
 
-        review_content_clamp = Adw.Clamp()
-        review_content_clamp.set_child(review_content)
-        review_scrolled.set_child(review_content_clamp)
-        review_page.set_child(review_scrolled)
-        self.navigation_view.add(review_page)
+        transcribe_scrolled = Gtk.ScrolledWindow()
+        transcribe_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        transcribe_scrolled.set_vexpand(True)
+        transcribe_scrolled.set_hexpand(True)
+        transcribe_scrolled.set_child(transcribe_box)
 
-        # File Details Page
-        details_page = Adw.NavigationPage()
-        details_page.set_title("File Details")
-        details_page.set_tag("details")
-        details_scrolled = Gtk.ScrolledWindow()
-        details_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        details_scrolled.set_vexpand(True)
-        details_scrolled.set_hexpand(True)
+        self.stack.add_titled(transcribe_scrolled, "transcribe", "Transcribe")
 
-        details_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        details_content.set_margin_start(12)
-        details_content.set_margin_end(12)
-        details_content.set_margin_top(6)
-        details_content.set_margin_bottom(6)
-        details_page.set_child(details_scrolled)
-        self.navigation_view.add(details_page)
+        # View Transcripts View
+        transcripts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        transcripts_box.set_margin_start(12)
+        transcripts_box.set_margin_end(12)
+        transcripts_box.set_margin_top(12)
+        transcripts_box.set_margin_bottom(12)
 
-        # File Content Page
-        content_page = Adw.NavigationPage()
-        content_page.set_title("File Content")
-        content_page.set_tag("file_content")
-        content_scrolled = Gtk.ScrolledWindow()
-        content_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        content_scrolled.set_vexpand(True)
-        content_scrolled.set_hexpand(True)
-        content_page.set_child(content_scrolled)
-        self.navigation_view.add(content_page)
-
-        # Transcripts Page
-        transcripts_page = Adw.NavigationPage()
-        transcripts_page.set_title("Transcripts")
-        transcripts_page.set_tag("transcripts")
-        transcripts_scrolled = Gtk.ScrolledWindow()
-        transcripts_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        transcripts_scrolled.set_vexpand(True)
-        transcripts_scrolled.set_hexpand(True)
-
-        transcripts_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        transcripts_content.set_margin_start(12)
-        transcripts_content.set_margin_end(12)
-        transcripts_content.set_margin_top(6)
-        transcripts_content.set_margin_bottom(6)
-
+        # Search and Close Buttons
+        search_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("Search in transcripts...")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", self.on_search_changed)
-        transcripts_content.append(self.search_entry)
+        search_bar.append(self.search_entry)
 
-        self.transcripts_group = Gtk.ListBox()
-        self.transcripts_group.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.transcripts_group.add_css_class("boxed-list")
-        self.transcripts_group.set_margin_start(12)
-        self.transcripts_group.set_margin_end(12)
-        transcripts_content.append(self.transcripts_group)
+        close_btn = Gtk.Button()
+        close_btn.set_icon_name("window-close-symbolic")
+        close_btn.add_css_class("flat")
+        close_btn.set_tooltip_text("Close search")
+        close_btn.connect("clicked", lambda btn: self.search_entry.set_text(""))
+        search_bar.append(close_btn)
 
-        transcripts_content_clamp = Adw.Clamp()
-        transcripts_content_clamp.set_child(transcripts_content)
-        transcripts_scrolled.set_child(transcripts_content_clamp)
-        transcripts_page.set_child(transcripts_scrolled)
-        self.navigation_view.add(transcripts_page)
+        transcripts_box.append(search_bar)
 
-        self.navigation_view.connect("pushed", self._on_navigation_pushed)
-        self.navigation_view.connect("popped", self._on_navigation_popped)
+        self.transcripts_group = Adw.PreferencesGroup()
+        self.transcripts_group.set_title("Transcripts")
+        self.transcripts_group.set_description("View completed transcripts")
+        transcripts_box.append(self.transcripts_group)
 
-        main_box.append(self.navigation_view)
-        return self.navigation_view
+        transcripts_scrolled = Gtk.ScrolledWindow()
+        transcripts_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        transcripts_scrolled.set_vexpand(True)
+        transcripts_scrolled.set_hexpand(True)
+        transcripts_scrolled.set_child(transcripts_box)
 
-    def _on_navigation_pushed(self, navigation_view, *args):
-        tag = navigation_view.get_visible_page().get_tag()
-        self._update_navigation_buttons(tag)
-        if tag == "transcripts":
-            self._update_transcripts_list("")
+        self.stack.add_titled(transcripts_scrolled, "transcripts", "View Transcripts")
 
-    def _on_navigation_popped(self, navigation_view, *args):
-        tag = navigation_view.get_visible_page().get_tag()
-        self._update_navigation_buttons(tag)
-        if tag == "transcripts":
+        # View Switcher
+        self.view_switcher = Adw.ViewSwitcher()
+        self.view_switcher.set_stack(self.stack)
+        self.view_switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+
+        # Connect to stack's visible-child signal to update transcripts when switched
+        self.stack.connect("notify::visible-child-name", self._on_view_switched)
+
+    def _on_view_switched(self, stack, param):
+        if stack.get_visible_child_name() == "transcripts":
             self._update_transcripts_list(self.search_entry.get_text().strip())
 
-    def _update_navigation_buttons(self, tag):
-        self.revert_button.set_visible(tag in ("review", "transcripts"))
-        self.back_button.set_visible(tag in ("details", "transcript_details", "file_content"))
-        if self.back_button.get_visible():
-            self.back_button.set_label("< Back")
+    def _on_reset_clicked(self, button):
+        self._reset_btn()
+        self.reset_btn.set_visible(False)
+        self.add_more_button.set_visible(True)
 
     def _on_icon_dnd_drop(self, drop_target, value, x, y, button):
         files = value.get_files()
         new_paths = self._collect_audio_files(files)
         for path in new_paths:
-            if path not in [self.audio_store.get_string(i) for i in range(self.audio_store.get_n_items())]:
+            if path not in [item['path'] for item in self.progress_items]:
                 self.audio_store.append(path)
                 self.add_file_to_list(os.path.basename(path), path)
         if new_paths:
             toast = Adw.Toast(title=f"Added {len(new_paths)} file(s)")
             toast.set_timeout(3)
             self.toast_overlay.add_toast(toast)
-            if self.navigation_view.get_visible_page().get_tag() != "review":
-                GLib.idle_add(self.navigation_view.push_by_tag, "review")
+        self.stack.set_visible_child_name("transcribe")
         return True
-
-    def update_status_card(self, transcription_status=None):
-        if self.status_card.get_child():
-            self.status_card.set_child(None)
-
-        if transcription_status:
-            if transcription_status == "started":
-                self.status_card.set_title("Transcription Started")
-                self.status_card.set_icon_name("media-playback-start-symbolic")
-                description = "Transcribing files..."
-            elif transcription_status == "completed":
-                self.status_card.set_title("Transcription Completed")
-                self.status_card.set_icon_name("emblem-ok-symbolic")
-                description = "All transcriptions completed."
-            elif transcription_status == "cancelled":
-                self.status_card.set_title("Transcription Cancelled")
-                self.status_card.set_icon_name("dialog-error-symbolic")
-                description = "Transcription was cancelled."
-            elif transcription_status == "error":
-                self.status_card.set_title("Transcription Error")
-                self.status_card.set_icon_name("dialog-error-symbolic")
-                description = "An error occurred during transcription."
-            elif transcription_status == "skipped":
-                self.status_card.set_title("Files Skipped")
-                self.status_card.set_icon_name("dialog-information-symbolic")
-                description = "Some files were skipped due to existing transcriptions."
-        else:
-            self.status_card.set_title("Audio-To-Text Transcriber")
-            self.status_card.set_icon_name("audio-x-generic-symbolic")
-            description = "Select audio files or folders to transcribe."
-
-        self.status_card.set_description(description)
-
-        main_content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        main_content_box.set_margin_top(12)
-        main_content_box.set_margin_bottom(12)
-
-        if not transcription_status:
-            button_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            button_container.set_halign(Gtk.Align.CENTER)
-            button_container.set_margin_top(6)
-            button_container.set_margin_bottom(12)
-
-            add_files_button = Gtk.Button()
-            add_files_button.set_size_request(300, 60)
-            button_content = Adw.ButtonContent(
-                label="Add Audio Files",
-                icon_name="list-add-symbolic"
-            )
-            add_files_button.set_child(button_content)
-            add_files_button.add_css_class("suggested-action")
-            add_files_button.add_css_class("pill")
-            add_files_button.connect("clicked", self.on_add_audio)
-            drop_target = Gtk.DropTarget.new(type=Gdk.FileList, actions=Gdk.DragAction.COPY)
-            drop_target.connect("drop", self._on_icon_dnd_drop, add_files_button)
-            add_files_button.add_controller(drop_target)
-            button_container.append(add_files_button)
-
-            transcripts_button = Gtk.Button()
-            transcripts_button.set_size_request(300, 60)
-            transcripts_content = Adw.ButtonContent(
-                label="Open Transcripts",
-                icon_name="document-open-symbolic"
-            )
-            transcripts_button.set_child(transcripts_content)
-            transcripts_button.add_css_class("suggested-action")
-            transcripts_button.add_css_class("pill")
-            transcripts_button.connect("clicked", lambda btn: self.navigation_view.push_by_tag("transcripts"))
-
-            out_dir = self.output_directory or os.path.expanduser("~/Downloads")
-            has_txt_files = False
-            if os.path.isdir(out_dir):
-                for root, _, files in os.walk(out_dir):
-                    if any(file.endswith(".txt") for file in files):
-                        has_txt_files = True
-                        break
-            transcripts_button.set_sensitive(has_txt_files)
-
-            button_container.append(transcripts_button)
-            main_content_box.append(button_container)
-
-        settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-
-        model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        model_box.set_margin_start(12)
-        model_box.set_margin_end(12)
-        model_box.set_margin_top(6)
-        model_box.set_margin_bottom(6)
-        model_label_key = Gtk.Label(label="Model")
-        model_label_key.set_halign(Gtk.Align.START)
-        model_label_key.set_hexpand(True)
-        model_box.append(model_label_key)
-        model_label_value = Gtk.Label(label=self._display_name(self._get_model_name()))
-        model_label_value.set_halign(Gtk.Align.START)
-        model_box.append(model_label_value)
-        model_settings_btn = Gtk.Button()
-        model_settings_btn.set_icon_name("emblem-system-symbolic")
-        model_settings_btn.set_valign(Gtk.Align.CENTER)
-        model_settings_btn.add_css_class("flat")
-        model_settings_btn.set_tooltip_text("Open model settings")
-        model_settings_btn.connect("clicked", lambda btn: self.on_settings(None, None))
-        model_box.append(model_settings_btn)
-        settings_box.append(model_box)
-
-        timestamps_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        timestamps_box.set_margin_start(12)
-        timestamps_box.set_margin_end(12)
-        timestamps_box.set_margin_top(6)
-        timestamps_box.set_margin_bottom(6)
-        timestamps_label_key = Gtk.Label(label="Timestamps")
-        timestamps_label_key.set_halign(Gtk.Align.START)
-        timestamps_label_key.set_hexpand(True)
-        timestamps_box.append(timestamps_label_key)
-        timestamps_label_value = Gtk.Label(label="Enabled" if self.ts_enabled else "Disabled")
-        timestamps_label_value.set_halign(Gtk.Align.START)
-        timestamps_box.append(timestamps_label_value)
-        timestamps_switch = Gtk.Switch()
-        timestamps_switch.set_valign(Gtk.Align.CENTER)
-        timestamps_switch.set_active(self.ts_enabled)
-        timestamps_switch.connect("notify::active", self._on_timestamps_toggled)
-        timestamps_box.append(timestamps_switch)
-        settings_box.append(timestamps_box)
-
-        output_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        output_box.set_margin_start(12)
-        output_box.set_margin_end(12)
-        output_box.set_margin_top(6)
-        output_box.set_margin_bottom(6)
-        output_label_key = Gtk.Label(label="Output Directory")
-        output_label_key.set_halign(Gtk.Align.START)
-        output_label_key.set_hexpand(True)
-        output_box.append(output_label_key)
-        output_label_value = Gtk.Label(label=self.output_directory or "Not set")
-        output_label_value.set_halign(Gtk.Align.START)
-        output_box.append(output_label_value)
-        output_open_btn = Gtk.Button()
-        output_open_btn.set_icon_name("folder-visiting-symbolic")
-        output_open_btn.set_valign(Gtk.Align.CENTER)
-        output_open_btn.add_css_class("flat")
-        output_open_btn.set_tooltip_text("Open output directory")
-        output_open_btn.connect("clicked", self._open_output_directory)
-        output_box.append(output_open_btn)
-        settings_box.append(output_box)
-
-        settings_box.add_css_class("card")
-        main_content_box.append(settings_box)
-
-        settings_clamp = Adw.Clamp()
-        settings_clamp.set_child(main_content_box)
-        self.status_card.set_child(settings_clamp)
-
-    def _get_model_name(self):
-        selected_index = self.model_combo.get_selected() if self.model_combo else Gtk.INVALID_LIST_POSITION
-        if selected_index != Gtk.INVALID_LIST_POSITION and self.model_strings.get_n_items() > 0:
-            active = self.model_strings.get_string(selected_index)
-            return self.display_to_core.get(active, "None")
-        return "None"
-
-    def _open_output_directory(self, button):
-        out_dir = self.output_directory or os.path.expanduser("~/Downloads")
-        if os.path.isdir(out_dir):
-            try:
-                Gio.AppInfo.launch_default_for_uri(f"file://{out_dir}", None)
-            except Exception as e:
-                self._error(f"Failed to open directory: {e}")
-        else:
-            self._error("Output directory is not set or invalid.")
 
     def add_file_to_list(self, filename, file_path):
         if not self.files_group:
@@ -438,11 +219,9 @@ class WhisperApp(Adw.Application):
         file_row.set_title(filename)
         file_row.set_subtitle(os.path.dirname(file_path) or "Local File")
 
-        # 1) First add the status icon (nearest the text)
         progress_widget = Gtk.Image()
         file_row.add_suffix(progress_widget)
 
-        # 2) Then add the trash button (furthest right)
         remove_btn = Gtk.Button()
         remove_btn.set_icon_name("user-trash-symbolic")
         remove_btn.set_valign(Gtk.Align.CENTER)
@@ -451,9 +230,6 @@ class WhisperApp(Adw.Application):
         remove_btn.set_tooltip_text("Remove file")
         file_row.add_suffix(remove_btn)
         remove_btn.connect("clicked", self._on_remove_file, file_path)
-
-        # progress_widget = Gtk.Image.new_from_icon_name("hourglass-symbolic")
-        # file_row.add_suffix(progress_widget)
 
         output_buffer = Gtk.TextBuffer()
         output_view = Gtk.TextView.new_with_buffer(output_buffer)
@@ -477,8 +253,52 @@ class WhisperApp(Adw.Application):
         file_row.set_activatable(True)
         file_row.connect('activated', lambda r: self._show_file_content(file_data) if file_data['status'] == 'completed' else self.show_file_details(file_data))
         self.files_group.add(file_row)
-        GLib.idle_add(self.update_status_card)
         return file_data
+
+    def add_transcript_to_list(self, filename, file_path):
+        if not self.transcripts_group:
+            raise RuntimeError("Transcripts group not initialized.")
+
+        transcript_row = Adw.ActionRow()
+        transcript_row.set_title(filename)
+        transcript_row.set_subtitle(os.path.dirname(file_path) or "Local File")
+
+        open_btn = Gtk.Button()
+        open_btn.set_icon_name("folder-open-symbolic")
+        open_btn.set_valign(Gtk.Align.CENTER)
+        open_btn.add_css_class("flat")
+        open_btn.set_tooltip_text("Open transcript in default editor")
+        open_btn.connect("clicked", lambda btn: self._open_transcript_file(file_path))
+        transcript_row.add_suffix(open_btn)
+
+        output_buffer = Gtk.TextBuffer()
+        output_view = Gtk.TextView.new_with_buffer(output_buffer)
+        output_view.set_editable(False)
+        output_view.set_monospace(True)
+        output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                output_buffer.set_text(content)
+        except Exception as e:
+            output_buffer.set_text(f"Error loading transcript: {e}")
+
+        transcript_data = {
+            'row': transcript_row,
+            'open_btn': open_btn,
+            'filename': filename,
+            'path': file_path,
+            'buffer': output_buffer,
+            'view': output_view,
+            'is_viewed': False
+        }
+        self.transcript_items.append(transcript_data)
+
+        transcript_row.set_activatable(True)
+        transcript_row.connect('activated', lambda r: self._show_transcript_content(transcript_data))
+        self.transcripts_group.add(transcript_row)
+        return transcript_data
 
     def _on_remove_file(self, button, file_path):
         file_data = next((item for item in self.progress_items if item['path'] == file_path), None)
@@ -516,199 +336,255 @@ class WhisperApp(Adw.Application):
             if self.audio_store.get_string(i) == file_path:
                 self.audio_store.splice(i, 1, [])
                 break
-        if not self.progress_items and self.navigation_view.get_visible_page().get_tag() != "welcome":
-            self.navigation_view.pop_to_tag("welcome")
-        if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
-            self.navigation_view.pop()
-        GLib.idle_add(self.update_status_card)
+        if not self.progress_items:
+            self._show_no_files_message()
+
+    def _show_no_files_message(self):
+        pass
 
     def show_file_details(self, file_data):
-        for item in self.progress_items:
-            item['is_viewed'] = False
-        file_data['is_viewed'] = True
+        details_window = Adw.Window(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        details_window.set_title("File Details")
+        details_window.set_default_size(400, 300)
 
-        details_page = self.navigation_view.find_page("details")
-        details_scrolled = details_page.get_child()
         details_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        details_content.set_margin_top(12)
-        details_content.set_margin_bottom(12)
-        details_content.set_margin_start(12)
-        details_content.set_margin_end(12)
-
-        status_page = Adw.StatusPage()
-        status_page.set_title(file_data['filename'])
-
-        if file_data['status'] == 'waiting':
-            status_page.set_icon_name("media-playback-start-symbolic")
-            status_page.set_description("Waiting to start...")
-        elif file_data['status'] == 'processing':
-            spinner = Gtk.Spinner()
-            spinner.set_spinning(True)
-            status_page.set_child(spinner)
-            status_page.set_description("Transcribing...")
-        elif file_data['status'] == 'completed':
-            status_page.set_icon_name("checkbox-checked-symbolic")
-            status_page.set_description("Transcription completed")
-            if file_data['buffer'] and file_data['buffer'].get_char_count() > 0:
-                output_box = self.create_output_widget(file_data)
-                status_page.set_child(output_box)
-        elif file_data['status'] == 'error':
-            status_page.set_icon_name("dialog-error-symbolic")
-            status_page.set_description("Error occurred during transcription")
-        elif file_data['status'] == 'skipped':
-            status_page.set_icon_name("dialog-information-symbolic")
-            status_page.set_description("Transcription skipped due to existing file")
-        else:
-            status_page.set_icon_name("audio-x-generic-symbolic")
-            status_page.set_description(f"Location: {os.path.dirname(file_data['path'])}")
-
-        details_content.append(status_page)
-        details_content_clamp = Adw.Clamp()
-        details_content_clamp.set_child(details_content)
-        details_scrolled.set_child(details_content_clamp)
-
-        if self.navigation_view.get_visible_page().get_tag() != "details":
-            self.navigation_view.push(details_page)
-        GLib.idle_add(self._update_navigation_buttons, "details")
+        details_window.set_content(details_content)
+        details_window.present()
 
     def _show_file_content(self, file_data):
-        for item in self.progress_items:
-            item['is_viewed'] = False
-        file_data['is_viewed'] = True
+        content_window = Adw.Window()
+        content_window.set_title("File Content")
+        content_window.set_default_size(400, 300)
 
-        content_page = self.navigation_view.find_page("file_content")
-        content_scrolled = content_page.get_child()
+        # Create toolbar view with header bar
+        toolbar_view = Adw.ToolbarView()
+        
+        # Create header bar with close button
+        header_bar = Adw.HeaderBar()
+        header_bar.set_title_widget(Adw.WindowTitle(title="File Content"))
+        
+        toolbar_view.add_top_bar(header_bar)
+
+        # Main content box with padding
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_box.set_margin_top(20)
+        main_box.set_margin_bottom(20)
+        main_box.set_margin_start(20)
+        main_box.set_margin_end(20)
+
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content_box.set_margin_start(12)
-        content_box.set_margin_end(12)
-        content_box.set_margin_top(12)
-        content_box.set_margin_bottom(12)
-
-        status_page = Adw.StatusPage()
-        status_page.set_title(file_data['filename'])
-        status_page.set_icon_name("text-x-generic-symbolic")
 
         if file_data['buffer'] and file_data['buffer'].get_char_count() > 0:
+            # Search entry below titlebar
+            search_entry = Gtk.SearchEntry()
+            search_entry.set_placeholder_text("Search in content...")
+            search_entry.set_hexpand(True)
+            
             buffer = Gtk.TextBuffer()
+            # Check if highlight tag exists
+            tag_table = buffer.get_tag_table()
+            highlight_tag = tag_table.lookup("highlight")
+            if not highlight_tag:
+                highlight_tag = buffer.create_tag("highlight", background="yellow")
+
             text = file_data['buffer'].get_text(
                 file_data['buffer'].get_start_iter(),
                 file_data['buffer'].get_end_iter(),
                 False
             )
             lines = text.splitlines()
+            search_text = self.search_entry.get_text().strip().lower()
             text_with_numbers = ""
             for i, line in enumerate(lines, 1):
                 text_with_numbers += f"{i:4d} | {line}\n"
             buffer.set_text(text_with_numbers)
 
+            if search_text:
+                text_lower = text_with_numbers.lower()
+                start_pos = 0
+                while True:
+                    start_pos = text_lower.find(search_text, start_pos)
+                    if start_pos == -1:
+                        break
+                    start_iter = buffer.get_iter_at_offset(start_pos)
+                    end_iter = buffer.get_iter_at_offset(start_pos + len(search_text))
+                    buffer.apply_tag(highlight_tag, start_iter, end_iter)
+                    start_pos += len(search_text)
+
             text_view = Gtk.TextView.new_with_buffer(buffer)
             text_view.set_editable(False)
             text_view.set_monospace(True)
             text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-            text_view.set_margin_start(12)
-            text_view.set_margin_end(12)
-            text_view.set_margin_top(12)
-            text_view.set_margin_bottom(12)
 
             scrolled_view = Gtk.ScrolledWindow()
             scrolled_view.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
             scrolled_view.set_vexpand(True)
             scrolled_view.set_hexpand(True)
-            scrolled_view.set_size_request(400, 300)
             scrolled_view.set_child(text_view)
-            scrolled_view.add_css_class("card")
 
-            open_btn = Gtk.Button()
-            open_btn.set_icon_name("folder-open-symbolic")
-            open_btn.set_valign(Gtk.Align.CENTER)
-            open_btn.add_css_class("flat")
-            open_btn.set_tooltip_text("Open transcript in default editor")
-            open_btn.connect("clicked", lambda btn: self._open_transcript_file(file_data['path']))
+            search_entry.connect("search-changed", lambda entry: self._highlight_text(text_view, entry.get_text().strip()))
 
-            status_page.set_child(scrolled_view)
-            content_box.append(status_page)
-            content_box.append(open_btn)
+            content_box.append(search_entry)
+            content_box.append(scrolled_view)
         else:
-            status_page.set_description("No transcription content available.")
+            status_msg = Gtk.Label(label="No transcription content available.")
+            content_box.append(status_msg)
 
-        content_clamp = Adw.Clamp()
-        content_clamp.set_child(content_box)
-        content_scrolled.set_child(content_clamp)
+        main_box.append(content_box)
+        toolbar_view.set_content(main_box)
+        content_window.set_content(toolbar_view)
+        content_window.present()
 
-        if self.navigation_view.get_visible_page().get_tag() != "file_content":
-            self.navigation_view.push(content_page)
-        GLib.idle_add(self._update_navigation_buttons, "file_content")
+    def _show_transcript_content(self, transcript_data):
+        content_window = Adw.Window()
+        content_window.set_title("Transcript Content")
+        content_window.set_default_size(400, 300)
 
-    def create_output_widget(self, file_data):
+        # Create toolbar view with header bar
+        toolbar_view = Adw.ToolbarView()
+        
+        # Create header bar with close button
+        header_bar = Adw.HeaderBar()
+        header_bar.set_title_widget(Adw.WindowTitle(title="Transcript Content"))
+
+        
+        toolbar_view.add_top_bar(header_bar)
+
+        # Main content box with padding
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_box.set_margin_top(20)
+        main_box.set_margin_bottom(20)
+        main_box.set_margin_start(20)
+        main_box.set_margin_end(20)
+
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+
+        if transcript_data['buffer'] and transcript_data['buffer'].get_char_count() > 0:
+            # Search entry below titlebar
+            search_entry = Gtk.SearchEntry()
+            search_entry.set_placeholder_text("Search in content...")
+            search_entry.set_hexpand(True)
+            
+            buffer = Gtk.TextBuffer()
+            # Check if highlight tag exists
+            tag_table = buffer.get_tag_table()
+            highlight_tag = tag_table.lookup("highlight")
+            if not highlight_tag:
+                highlight_tag = buffer.create_tag("highlight", background="yellow")
+
+            text = transcript_data['buffer'].get_text(
+                transcript_data['buffer'].get_start_iter(),
+                transcript_data['buffer'].get_end_iter(),
+                False
+            )
+            lines = text.splitlines()
+            search_text = self.search_entry.get_text().strip().lower()
+            text_with_numbers = ""
+            for i, line in enumerate(lines, 1):
+                text_with_numbers += f"{i:4d} | {line}\n"
+            buffer.set_text(text_with_numbers)
+
+            if search_text:
+                text_lower = text_with_numbers.lower()
+                start_pos = 0
+                while True:
+                    start_pos = text_lower.find(search_text, start_pos)
+                    if start_pos == -1:
+                        break
+                    start_iter = buffer.get_iter_at_offset(start_pos)
+                    end_iter = buffer.get_iter_at_offset(start_pos + len(search_text))
+                    buffer.apply_tag(highlight_tag, start_iter, end_iter)
+                    start_pos += len(search_text)
+
+            text_view = Gtk.TextView.new_with_buffer(buffer)
+            text_view.set_editable(False)
+            text_view.set_monospace(True)
+            text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+
+            scrolled_view = Gtk.ScrolledWindow()
+            scrolled_view.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scrolled_view.set_vexpand(True)
+            scrolled_view.set_hexpand(True)
+            scrolled_view.set_child(text_view)
+
+            search_entry.connect("search-changed", lambda entry: self._highlight_text(text_view, entry.get_text().strip()))
+
+            content_box.append(search_entry)
+            content_box.append(scrolled_view)
+        else:
+            status_msg = Gtk.Label(label="No transcription content available.")
+            content_box.append(status_msg)
+
+        main_box.append(content_box)
+        toolbar_view.set_content(main_box)
+        content_window.set_content(toolbar_view)
+        content_window.present()
+
+    def _highlight_text(self, text_view, search_text):
+        buffer = text_view.get_buffer()
+        buffer.remove_all_tags(buffer.get_start_iter(), buffer.get_end_iter())
+        tag_table = buffer.get_tag_table()
+        highlight_tag = tag_table.lookup("highlight")
+        if not highlight_tag:
+            highlight_tag = buffer.create_tag("highlight", background="yellow")
+        if search_text:
+            text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False).lower()
+            start_pos = 0
+            while True:
+                start_pos = text.find(search_text.lower(), start_pos)
+                if start_pos == -1:
+                    break
+                start_iter = buffer.get_iter_at_offset(start_pos)
+                end_iter = buffer.get_iter_at_offset(start_pos + len(search_text))
+                buffer.apply_tag(highlight_tag, start_iter, end_iter)
+                start_pos += len(search_text)
+
+    def create_output_widget(self, data):
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
-        scrolled.set_size_request(400, 300)
 
-        text_view = Gtk.TextView.new_with_buffer(file_data['buffer'])
+        text_view = Gtk.TextView.new_with_buffer(data['buffer'])
         text_view.set_editable(False)
         text_view.set_monospace(True)
         text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        text_view.set_margin_start(12)
-        text_view.set_margin_end(12)
-        text_view.set_margin_top(12)
-        text_view.set_margin_bottom(12)
 
         scrolled.set_child(text_view)
-        scrolled.add_css_class("card")
-
         return scrolled
 
     def update_file_status(self, file_data, status, message=""):
         row, old_icon, remove_btn = file_data['row'], file_data['icon'], file_data['remove_btn']
 
-        # ---- safely remove the previous status widget ----
-        if old_icon and old_icon.get_parent():          # only if it’s still packed
+        if old_icon and old_icon.get_parent():
             row.remove(old_icon)
 
-        # ---- build the new status widget ----
         if status == 'processing':
             new_icon = Gtk.Spinner()
             new_icon.set_spinning(True)
         else:
             icon_name = {
                 'waiting':   'hourglass-symbolic',
-                'completed': None,                       # show nothing
+                'completed': None,
                 'cancelled': 'process-stop-symbolic',
                 'error':     'dialog-error-symbolic',
                 'skipped':   'dialog-information-symbolic',
             }.get(status, 'hourglass-symbolic')
-
-            # None → create an empty Gtk.Image so we still have a widget to pack
             new_icon = Gtk.Image.new_from_icon_name(icon_name)
 
-        # ---- keep the [status] [trash] order ----
         if remove_btn.get_parent():
             row.remove(remove_btn)
         row.add_suffix(new_icon)
         row.add_suffix(remove_btn)
 
-        # ---- update bookkeeping ----
-        file_data['icon']   = new_icon
+        file_data['icon'] = new_icon
         file_data['status'] = status
         row.set_subtitle(message or status.title())
-
-        # ---- refresh Details/File-content page if it’s open ----
-        if file_data['is_viewed'] and \
-        self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
-            if status == 'completed':
-                GLib.idle_add(self._show_file_content, file_data)
-            else:
-                GLib.idle_add(self.show_file_details, file_data)
 
     def add_log_text(self, file_data, text):
         if file_data['buffer']:
             end_iter = file_data['buffer'].get_end_iter()
             file_data['buffer'].insert(end_iter, text + "\n")
-            if file_data['is_viewed'] and self.navigation_view.get_visible_page().get_tag() in ("details", "file_content"):
-                mark = file_data['buffer'].get_insert()
-                file_data['view'].scroll_mark_onscreen(mark)
 
     def on_about(self, action, param):
         about = Adw.AboutWindow(
@@ -726,42 +602,45 @@ class WhisperApp(Adw.Application):
     def on_toggle_timestamps(self, action, param):
         self.ts_enabled = not self.ts_enabled
         action.set_state(GLib.Variant.new_boolean(self.ts_enabled))
-        GLib.idle_add(self.update_status_card)
 
     def _on_model_combo_changed(self, dropdown, _):
         self.save_settings()
         self._update_model_btn()
-        GLib.idle_add(self.update_status_card)
 
     def _model_target_path(self, core):
         return os.path.join(self.models_dir, f"ggml-{core}.bin")
 
     def _display_name(self, core: str) -> str:
-        """Return the human-readable label that corresponds to *core*.
-        Falls back to the core string itself if no match is found."""
         return next((
             label for label, c in self.display_to_core.items() if c == core
         ), core)
+
+    def _get_model_name(self):
+        selected_index = self.model_combo.get_selected() if self.model_combo else Gtk.INVALID_LIST_POSITION
+        if selected_index == Gtk.INVALID_LIST_POSITION or self.model_strings.get_n_items() == 0:
+            return "None"
+        active = self.model_strings.get_string(selected_index)
+        return self.display_to_core.get(active, "None")
 
     def _update_model_btn(self):
         selected_index = self.model_combo.get_selected() if self.model_combo else Gtk.INVALID_LIST_POSITION
         if selected_index == Gtk.INVALID_LIST_POSITION or self.model_strings.get_n_items() == 0:
             if self.model_btn:
                 self.model_btn.set_label("No Model Selected")
-                self.status_lbl.set_label("No Model Selected")
             if hasattr(self, 'trans_btn'):
                 self.trans_btn.set_sensitive(False)
-                self.status_lbl.set_label("No Model Selected, Goto Settings!")
+            if self.model_value_label:
+                self.model_value_label.set_label("None")
             return False
 
         active = self.model_strings.get_string(selected_index)
         if not active:
             if self.model_btn:
                 self.model_btn.set_label("No Model Selected")
-                self.status_lbl.set_label("No Model Selected")
             if hasattr(self, 'trans_btn'):
                 self.trans_btn.set_sensitive(False)
-                self.status_lbl.set_label("No Model Selected, Goto Settings!")
+            if self.model_value_label:
+                self.model_value_label.set_label("None")
             return False
 
         if self.dl_info:
@@ -771,7 +650,6 @@ class WhisperApp(Adw.Application):
                 self.model_btn.set_label(f"Cancel Download {done} / {tot} MB")
             if hasattr(self, 'trans_btn'):
                 self.trans_btn.set_sensitive(False)
-                self.status_lbl.set_label("No Model Selected, Goto Settings!")
             return True
 
         try:
@@ -781,7 +659,8 @@ class WhisperApp(Adw.Application):
                 self.model_btn.set_label("No Model Selected, Goto Settings!")
             if hasattr(self, 'trans_btn'):
                 self.trans_btn.set_sensitive(False)
-                self.status_lbl.set_label("No Model Selected, Goto Settings!")
+            if self.model_value_label:
+                self.model_value_label.set_label("None")
             return False
 
         exists = os.path.isfile(self._model_target_path(core))
@@ -789,11 +668,10 @@ class WhisperApp(Adw.Application):
             self.model_btn.set_label("Delete Model" if exists else "Install Model")
         if hasattr(self, 'trans_btn'):
             self.trans_btn.set_sensitive(exists and not self.dl_info)
-            name = self._display_name(core)
-            if exists:
-                self.status_lbl.set_label(f"Model: {name}, Destination: {self.output_directory or 'Not set'}")
-            else:
-                self.status_lbl.set_label(f"Model: {name}, Go to settings to download")
+        if self.model_value_label:
+            self.model_value_label.set_label(self._display_name(core))
+        if self.output_value_label:
+            self.output_value_label.set_label(self.output_directory or "Not set")
         return exists
 
     def on_model_btn(self, _):
@@ -807,7 +685,6 @@ class WhisperApp(Adw.Application):
                 except subprocess.TimeoutExpired:
                     proc.kill()
                 self.dl_info["cancelled"] = True
-                self.status_lbl.set_label("Cancelling download...")
                 GLib.idle_add(self._on_download_done, False)
             return
         selected_index = self.model_combo.get_selected()
@@ -913,56 +790,6 @@ class WhisperApp(Adw.Application):
         self._refresh_model_menu()
         self._update_model_btn()
 
-    def _update_download_progress(self):
-        if not self.dl_info:
-            return False
-        proc, target = self.dl_info["proc"], self.dl_info["target"]
-        if proc.poll() is None:
-            GLib.idle_add(self._update_model_btn)
-            return True
-        success = (proc.returncode == 0 and os.path.isfile(target))
-        if success:
-            expected_mb = self.dl_info["total_mb"]
-            actual_mb = os.path.getsize(target) // MB if os.path.isfile(target) else 0
-            if expected_mb and abs(actual_mb - expected_mb) > 5:
-                success = False
-                GLib.idle_add(self._error, f"Model {self.dl_info['core']} size mismatch: expected {expected_mb} MB, got {actual_mb} MB")
-                if os.path.isfile(target):
-                    os.remove(target)
-        if not success and os.path.isfile(target):
-            os.remove(target)
-            GLib.idle_add(self._error, f"Failed to download model “{self.dl_info['core']}”.")
-        else:
-            GLib.idle_add(self.status_lbl.set_label, f"Model “{self.dl_info['core']}” installed.")
-        self.dl_info = None
-        GLib.idle_add(self._refresh_model_menu)
-        GLib.idle_add(self._update_model_btn)
-        return False
-
-    def _remote_size_bytes(self, core):
-        src = "https://huggingface.co/ggerganov/whisper.cpp"
-        pfx = "resolve/main/ggml"
-        if "tdrz" in core:
-            src = "https://huggingface.co/akashmjn/tinydiarize-whisper.cpp"
-        url = f"{src}/{pfx}-{core}.bin"
-        for tool in (["curl", "-sIL", url], ["wget", "--spider", "-S", url]):
-            try:
-                out = subprocess.check_output(tool, stderr=subprocess.STDOUT, text=True, timeout=8)
-                for ln in out.splitlines():
-                    if "Content-Length" in ln:
-                        return int(ln.split()[-1])
-            except Exception:
-                continue
-        return None
-
-    def _on_audio_key(self, controller, keyval, keycode, state):
-        if keyval in (Gdk.KEY_Delete, Gdk.KEY_BackSpace):
-            self.on_remove_audio(None, None)
-            return True
-        if keyval in (Gdk.KEY_a, Gdk.KEY_A) and state & Gdk.ModifierType.CONTROL_MASK:
-            return True
-        return False
-
     def on_add_audio(self, _):
         choice_dialog = Adw.AlertDialog(
             heading="Add Audio",
@@ -1005,14 +832,14 @@ class WhisperApp(Adw.Application):
             files = dialog.open_multiple_finish(result)
             new_paths = self._collect_audio_files(files)
             for fn in new_paths:
-                if fn not in [self.audio_store.get_string(i) for i in range(self.audio_store.get_n_items())]:
+                if fn not in [item['path'] for item in self.progress_items]:
                     self.audio_store.append(fn)
                     self.add_file_to_list(os.path.basename(fn), fn)
             if new_paths:
                 toast = Adw.Toast(title=f"Added {len(new_paths)} file(s)")
                 toast.set_timeout(3)
                 self.toast_overlay.add_toast(toast)
-                GLib.idle_add(self.navigation_view.push_by_tag, "review")
+            self.stack.set_visible_child_name("transcribe")
         except GLib.Error:
             pass
 
@@ -1021,14 +848,14 @@ class WhisperApp(Adw.Application):
             folders = dialog.select_multiple_folders_finish(result)
             new_paths = self._collect_audio_files(folders)
             for fn in new_paths:
-                if fn not in [self.audio_store.get_string(i) for i in range(self.audio_store.get_n_items())]:
+                if fn not in [item['path'] for item in self.progress_items]:
                     self.audio_store.append(fn)
                     self.add_file_to_list(os.path.basename(fn), fn)
             if new_paths:
                 toast = Adw.Toast(title=f"Added {len(new_paths)} file(s)")
                 toast.set_timeout(3)
                 self.toast_overlay.add_toast(toast)
-                GLib.idle_add(self.navigation_view.push_by_tag, "review")
+            self.stack.set_visible_child_name("transcribe")
         except GLib.Error:
             pass
 
@@ -1036,6 +863,7 @@ class WhisperApp(Adw.Application):
         audio_ext = (".mp3", ".wav", ".flac", ".m4a", ".ogg", ".opus")
         found = []
         seen = set(self.audio_store.get_string(i) for i in range(self.audio_store.get_n_items()))
+        seen.update(item['path'] for item in self.progress_items)
         def _add_if_ok(p):
             path = p.get_path() if isinstance(p, Gio.File) else p
             if path and path.lower().endswith(audio_ext) and path not in seen:
@@ -1077,37 +905,13 @@ class WhisperApp(Adw.Application):
                 except subprocess.TimeoutExpired:
                     self.current_proc.kill()
             self._remove_all_files()
-            GLib.idle_add(self.update_status_card, "cancelled")
 
     def _remove_all_files(self):
         for file_data in self.progress_items:
             self.files_group.remove(file_data['row'])
         self.progress_items.clear()
         self.audio_store.splice(0, self.audio_store.get_n_items(), [])
-        if self.navigation_view.get_visible_page().get_tag() != "welcome":
-            self.navigation_view.pop_to_tag("welcome")
-        GLib.idle_add(self.update_status_card)
-
-    def _browse_out_settings(self, button):
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Select Output Directory")
-
-        def on_folder_selected(dialog, result):
-            try:
-                folder = dialog.select_folder_finish(result)
-                if folder:
-                    path = folder.get_path()
-                    self.output_settings_row.set_subtitle(path)
-                    self._save_output_directory(path)
-                    GLib.idle_add(self.update_status_card)
-            except Exception as e:
-                print(f"Error selecting folder: {e}")
-
-        dialog.select_folder(self.window, None, on_folder_selected)
-
-    def _save_output_directory(self, path):
-        self.output_directory = path
-        self.save_settings()
+        self._show_no_files_message()
 
     def _setup_dnd(self):
         target = Gtk.DropTarget.new(type=Gdk.FileList, actions=Gdk.DragAction.COPY)
@@ -1118,13 +922,14 @@ class WhisperApp(Adw.Application):
         files = value.get_files()
         new_paths = self._collect_audio_files(files)
         for path in new_paths:
-            if path not in [self.audio_store.get_string(i) for i in range(self.audio_store.get_n_items())]:
+            if path not in [item['path'] for item in self.progress_items]:
                 self.audio_store.append(path)
                 self.add_file_to_list(os.path.basename(path), path)
         if new_paths:
             toast = Adw.Toast(title=f"Added {len(new_paths)} file(s)")
             toast.set_timeout(3)
             self.toast_overlay.add_toast(toast)
+        self.stack.set_visible_child_name("transcribe")
         return True
 
     def on_transcribe(self, _):
@@ -1136,7 +941,6 @@ class WhisperApp(Adw.Application):
                 except:
                     pass
             self._gui_status("Cancelling...")
-            GLib.idle_add(self.update_status_card, "cancelled")
             return
 
         selected_index = self.model_combo.get_selected()
@@ -1165,13 +969,10 @@ class WhisperApp(Adw.Application):
             self._error("Choose a valid output folder in settings.")
             return
 
-        # Check for conflicting files
         conflicting_files = []
         non_conflicting_files = []
         for file_path in files:
             filename = os.path.basename(file_path)
-
-            # dest = os.path.join(out_dir, filename + ".txt")
             dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
             if os.path.isfile(dest) and os.path.getsize(dest) > 0:
                 conflicting_files.append(file_path)
@@ -1202,16 +1003,12 @@ class WhisperApp(Adw.Application):
                 if file_data:
                     GLib.idle_add(self.update_file_status, file_data, 'skipped', "Skipped due to existing transcription")
             self._start_transcription(non_conflicting_files, model_path, out_dir, core)
-        # Cancel does nothing
 
     def _start_transcription(self, files, model_path, out_dir, core):
         self.cancel_flag = False
         self.trans_btn.set_label("Cancel")
         self._red(self.trans_btn)
-        GLib.idle_add(self.add_more_button.set_visible, False)
-        GLib.idle_add(self.update_status_card, "started")
-        if self.navigation_view.get_visible_page().get_tag() != "review":
-            GLib.idle_add(self.navigation_view.push_by_tag, "review")
+        GLib.idle_add(self.status_lbl.set_label, "Transcription Started")
         threading.Thread(target=self._worker, args=(model_path, files, out_dir, core), daemon=True).start()
 
     def _worker(self, model_path, files, out_dir, core):
@@ -1264,7 +1061,6 @@ class WhisperApp(Adw.Application):
                     self.current_proc.stderr.close()
                     GLib.idle_add(self.update_file_status, file_data, 'error', f"Error occurred")
                     GLib.idle_add(self.add_log_text, file_data, f"ERROR: {error}")
-                    GLib.idle_add(self.update_status_card, "error")
                 else:
                     self.current_proc.stderr.close()
                     dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
@@ -1277,60 +1073,27 @@ class WhisperApp(Adw.Application):
                             )
                             with open(dest, "w", encoding="utf-8") as f:
                                 f.write(txt)
+                            if dest not in [item['path'] for item in self.transcript_items]:
+                                GLib.idle_add(self.add_transcript_to_list, os.path.basename(dest), dest)
                         return False
                     GLib.idle_add(_save)
                     GLib.idle_add(self.update_file_status, file_data, 'completed', "Completed successfully")
-                    GLib.idle_add(self.update_status_card)
 
+        GLib.idle_add(self.reset_btn.set_visible, True)
+        GLib.idle_add(self.add_more_button.set_visible, False)
         if self.cancel_flag:
             self._gui_status("Cancelled")
-            GLib.idle_add(self.update_status_card, "cancelled")
             GLib.idle_add(self._reset_btn)
         else:
             self._gui_status("Done")
-            GLib.idle_add(self.update_status_card, "completed")
             GLib.idle_add(self.trans_btn.set_label, "Transcription Complete")
             GLib.idle_add(self.trans_btn.set_sensitive, False)
-            GLib.idle_add(self.add_more_button.set_label, "View Transcriptions")
-            GLib.idle_add(self.add_more_button.set_visible, True)
-            GLib.idle_add(self.add_more_button.disconnect_by_func, self.on_add_audio)
-            GLib.idle_add(self.add_more_button.connect, "clicked", lambda btn: self.navigation_view.push_by_tag("transcripts"))
-
-    def _ensure_whisper_cli(self):
-        if shutil.which("whisper-cli"):
-            self.bin_path = shutil.which("whisper-cli")
-            return True
-        if os.path.isfile(self.bin_path):
-            return True
-        GLib.idle_add(self.status_lbl.set_label, "Building whisper-cli (~2 min)...")
-        try:
-            res1 = subprocess.run(
-                ["cmake", "-B", "build"],
-                cwd=self.repo_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                errors='replace'
-            )
-            if res1.returncode != 0:
-                raise RuntimeError(res1.stderr)
-            res2 = subprocess.run(
-                ["cmake", "--build", "build", "--config", "Release"],
-                cwd=self.repo_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                errors='replace'
-            )
-            if res2.returncode != 0:
-                raise RuntimeError(res2.stderr)
-            if not os.path.isfile(self.bin_path):
-                raise FileNotFoundError(f"{self.bin_path} still missing after build")
-        except Exception as e:
-            GLib.idle_add(self._error, f"Build failed:\n{e}\n{self.repo_dir}")
-            return False
-        GLib.idle_add(self.status_lbl.set_label, "Build complete.")
-        return True
+            GLib.idle_add(self.add_more_button.set_label, "View Transcripts")
+            try:
+                self.add_more_button.disconnect_by_func(self.on_add_audio)
+            except TypeError:
+                pass
+            GLib.idle_add(self.add_more_button.connect, "clicked", lambda btn: self.stack.set_visible_child_name("transcripts"))
 
     def _green(self, b):
         b.add_css_class("suggested-action")
@@ -1358,12 +1121,12 @@ class WhisperApp(Adw.Application):
             self.add_more_button.set_label("Add Audio Files")
             self.add_more_button.set_visible(True)
             try:
-                self.add_more_button.disconnect_by_func(lambda btn: self.navigation_view.push_by_tag("transcripts"))
-            except:
+                self.add_more_button.disconnect_by_func(lambda btn: self.stack.set_visible_child_name("transcripts"))
+            except TypeError:
                 pass
             try:
                 self.add_more_button.disconnect_by_func(self.on_add_audio)
-            except:
+            except TypeError:
                 pass
             self.add_more_button.connect("clicked", self.on_add_audio)
 
@@ -1381,7 +1144,7 @@ class WhisperApp(Adw.Application):
 
     def _error(self, msg):
         parent = getattr(self, 'settings_dialog', None) or self.window
-        toast = Adw.Toast(title="Error", button_label="Close")
+        toast = Adw.Toast(title=msg, button_label="Close")
         toast.set_timeout(5)
         toast.connect("dismissed", lambda t: None)
         self.toast_overlay.add_toast(toast)
@@ -1508,22 +1271,6 @@ class WhisperApp(Adw.Application):
         self.header_bar.add_css_class("flat")
         main_box.append(self.header_bar)
 
-        self.revert_button = Gtk.Button()
-        self.revert_button.set_child(Gtk.Image.new_from_icon_name("edit-undo-symbolic"))
-        self.revert_button.add_css_class("flat")
-        self.revert_button.set_tooltip_text("Return to Home")
-        self.revert_button.connect("clicked", lambda btn: self.revert_back())
-        self.header_bar.pack_start(self.revert_button)
-        self.revert_button.set_visible(False)
-
-        self.back_button = Gtk.Button()
-        self.back_button.set_label("< Back")
-        self.back_button.add_css_class("flat")
-        self.back_button.set_tooltip_text("Back")
-        self.back_button.set_visible(False)
-        self.back_button.connect("clicked", lambda btn: self._on_back_clicked())
-        self.header_bar.pack_start(self.back_button)
-
         title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         title_label = Gtk.Label(label=self.title)
         title_label.set_markup(f"<b>{self.title}</b>")
@@ -1559,7 +1306,24 @@ class WhisperApp(Adw.Application):
         self.model_combo.connect("notify::selected", self._on_model_combo_changed)
         self.model_btn = None
 
-        self.create_navigation_ui(main_box)
+        self.create_view_switcher_ui()
+        main_box.append(self.view_switcher)
+        main_box.append(self.stack)
+
+        # Settings Info
+        settings_info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        model_label = Gtk.Label(label="Model: ")
+        self.model_value_label = Gtk.Label(label=self._display_name(self._get_model_name()))
+        settings_info_box.append(model_label)
+        settings_info_box.append(self.model_value_label)
+        output_label = Gtk.Label(label="Output Directory: ")
+        self.output_value_label = Gtk.Label(label=self.output_directory or "Not set")
+        settings_info_box.append(output_label)
+        settings_info_box.append(self.output_value_label)
+        settings_button = Gtk.Button(label="Settings")
+        settings_button.connect("clicked", lambda btn: self.on_settings(None, None))
+        settings_info_box.append(settings_button)
+        main_box.append(settings_info_box)
 
         self.status_lbl = Gtk.Label(label="Idle")
         self.status_lbl.set_halign(Gtk.Align.START)
@@ -1567,59 +1331,6 @@ class WhisperApp(Adw.Application):
 
         self._refresh_model_menu()
         self._update_model_btn()
-
-    def revert_back(self):
-        current_tag = self.navigation_view.get_visible_page().get_tag()
-        if current_tag == "review":
-            dialog = Adw.AlertDialog(
-                heading="Cancel and Remove Files?",
-                body="Do you want to cancel and remove all files?",
-            )
-            dialog.add_response("no", "No, Continue")
-            dialog.add_response("yes", "Yes, Cancel and Remove All")
-            dialog.set_response_appearance("yes", Adw.ResponseAppearance.DESTRUCTIVE)
-            dialog.connect("response", lambda d, r: self._on_cancel_transcription_response(d, r))
-            dialog.present(self.window)
-        elif current_tag in ("details", "transcripts", "transcript_details", "file_content"):
-            self.navigation_view.pop_to_tag("welcome")
-            GLib.idle_add(self._reset_btn)
-
-    def _on_cancel_transcription_response(self, dialog, response):
-        if response == "yes":
-            is_transcribing = any(item['status'] == 'processing' for item in self.progress_items)
-            if is_transcribing:
-                self.cancel_flag = True
-                if self.current_proc and self.current_proc.poll() is None:
-                    try:
-                        self.current_proc.terminate()
-                        self.current_proc.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        self.current_proc.kill()
-            self._remove_all_files()
-            self.navigation_view.pop_to_tag("welcome")
-            GLib.idle_add(self._reset_btn)
-
-    def _on_back_clicked(self):
-        current_tag = self.navigation_view.get_visible_page().get_tag()
-        if current_tag == "review":
-            self.navigation_view.pop_to_tag("welcome")
-            GLib.idle_add(self._reset_btn)
-        elif current_tag in ("details", "transcript_details"):
-            self.navigation_view.pop()
-        elif current_tag == "file_content":
-            self.navigation_view.pop_to_tag("review")
-
-    def _on_next_clicked(self):
-        current_tag = self.navigation_view.get_visible_page().get_tag()
-        if current_tag == "welcome":
-            self.navigation_view.push_by_tag("review")
-        elif current_tag == "details":
-            current_file = next((item for item in self.progress_items if item['is_viewed']), None)
-            if current_file:
-                current_index = self.progress_items.index(current_file)
-                if current_index < len(self.progress_items) - 1:
-                    next_file = self.progress_items[current_index + 1]
-                    self.show_file_details(next_file)
 
     def save_settings(self):
         settings = {
@@ -1632,7 +1343,6 @@ class WhisperApp(Adw.Application):
             os.makedirs(self.settings_file.parent, exist_ok=True)
             with open(self.settings_file, 'w') as f:
                 yaml.dump(settings, f, default_style="'", default_flow_style=False)
-            GLib.idle_add(self.update_status_card)
         except Exception as e:
             self._error(f"Error saving settings: {e}")
 
@@ -1642,7 +1352,6 @@ class WhisperApp(Adw.Application):
         action = self.lookup_action("toggle-timestamps")
         if action:
             action.set_state(GLib.Variant.new_boolean(self.ts_enabled))
-        GLib.idle_add(self.update_status_card)
 
     def _refresh_model_menu(self):
         current_core = None
@@ -1683,70 +1392,36 @@ class WhisperApp(Adw.Application):
         self.save_settings()
 
     def _clear_listbox(self, listbox):
-        print("Clearing listbox")  # Debug
         try:
-            while True:
-                child = listbox.get_first_child()
-                if child is None:
-                    break
+            while child := listbox.get_first_child():
                 listbox.remove(child)
-            print("Listbox cleared successfully")  # Debug
         except Exception as e:
-            print(f"Error clearing listbox: {e}")  # Debug
-
-    def _load_transcripts(self):
-        print("_load_transcripts called")  # Debug
-        self._update_transcripts_list("")
+            print(f"Error clearing listbox: {e}")
 
     def setup_transcripts_listbox(self):
-        print("Setting up transcripts listbox")  # Debug
         if hasattr(self, 'transcripts_group') and self.transcripts_group is not None:
-            self.transcripts_group.connect("row-activated", self._on_transcript_row_activated)
-            print("Connected row-activated signal")  # Debug
-        else:
-            print("transcripts_group not found or is None")  # Debug
-
-    def _on_transcript_row_activated(self, listbox, row):
-        print("Transcript row activated")  # Debug
-        file_path = getattr(row, 'file_path', None)
-        print(f"File path: {file_path}")  # Debug
-        if file_path:
-            self._show_transcript(file_path)
-        else:
-            print("No file path found for row")  # Debug
+            pass
 
     def _show_transcript(self, file_path):
-        print(f"_show_transcript called with: {file_path}")  # Debug
         if not os.path.exists(file_path):
-            print(f"File does not exist: {file_path}")  # Debug
             return
 
-        transcript_page = Adw.NavigationPage()
-        transcript_page.set_title(os.path.basename(file_path))
-        transcript_page.set_tag("transcript_details")
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_vexpand(True)
-        scrolled.set_hexpand(True)
+        transcript_window = Adw.Window()
+        transcript_window.set_title(os.path.basename(file_path))
+        transcript_window.set_default_size(400, 300)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.set_margin_start(12)
-        content.set_margin_end(12)
-        content.set_margin_top(12)
-        content.set_margin_bottom(12)
-
-        status_page = Adw.StatusPage()
-        status_page.set_title(os.path.basename(file_path))
-        status_page.set_icon_name("text-x-generic-symbolic")
 
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            print(f"Read {len(lines)} lines from {file_path}")  # Debug
 
             buffer = Gtk.TextBuffer()
-            highlight_tag = buffer.create_tag("highlight", background="yellow")
+            tag_table = buffer.get_tag_table()
+            highlight_tag = tag_table.lookup("highlight")
+            if not highlight_tag:
+                highlight_tag = buffer.create_tag("highlight", background="yellow")
+
             search_text = self.search_entry.get_text().strip().lower()
 
             text_with_numbers = ""
@@ -1767,7 +1442,7 @@ class WhisperApp(Adw.Application):
                     start_pos += len(search_text)
 
             output_box = self.create_output_widget({'buffer': buffer})
-            status_page.set_child(output_box)
+
 
             open_btn = Gtk.Button()
             open_btn.set_icon_name("folder-open-symbolic")
@@ -1776,21 +1451,14 @@ class WhisperApp(Adw.Application):
             open_btn.set_tooltip_text("Open transcript in default editor")
             open_btn.connect("clicked", lambda btn: self._open_transcript_file(file_path))
 
-            content.append(status_page)
+            content.append(output_box)
             content.append(open_btn)
         except Exception as e:
-            print(f"Error loading transcript: {e}")  # Debug
-            status_page.set_description(f"Error loading transcript: {e}")
-            content.append(status_page)
+            status_msg = Gtk.Label(label=f"Error loading transcript: {e}")
+            content.append(status_msg)
 
-        content_clamp = Adw.Clamp()
-        content_clamp.set_child(content)
-        scrolled.set_child(content_clamp)
-        transcript_page.set_child(scrolled)
-
-        print("Pushing transcript page")  # Debug
-        self.navigation_view.push(transcript_page)
-        print("Transcript page pushed")  # Debug
+        transcript_window.set_content(content)
+        transcript_window.present()
 
     def _open_transcript_file(self, file_path):
         try:
@@ -1803,39 +1471,34 @@ class WhisperApp(Adw.Application):
         self._update_transcripts_list(search_text)
 
     def _update_transcripts_list(self, search_text):
-        print(f"_update_transcripts_list called with search_text: '{search_text}'")  # Debug
-        self._clear_listbox(self.transcripts_group)
+        # Clear existing transcripts
+        for transcript_data in self.transcript_items[:]:
+            if transcript_data['row'].get_parent():
+                self.transcripts_group.remove(transcript_data['row'])
+        self.transcript_items.clear()
 
         out_dir = self.output_directory or os.path.expanduser("~/Downloads")
-        print(f"Looking for transcripts in: {out_dir}")  # Debug
-
         if not os.path.isdir(out_dir):
-            print(f"Output directory does not exist: {out_dir}")  # Debug
             self._error("Output directory is invalid.")
             return
 
         matches = []
+        seen = set()
         try:
-            total_files = 0
-            txt_files = 0
             for root, _, files in sorted(os.walk(out_dir)):
-                print(f"Checking directory: {root}")  # Debug
                 for file in sorted(files):
-                    total_files += 1
                     if file.endswith(".txt"):
-                        txt_files += 1
                         file_path = os.path.join(root, file)
-                        print(f"Found txt file: {file_path}")  # Debug
-                        if search_text:
-                            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                                content = f.read()
-                                if search_text.lower() in content.lower():
-                                    matches.append(file_path)
-                                    print(f"Match found: {file_path}")  # Debug
-                        else:
-                            matches.append(file_path)
-
-            print(f"Total files: {total_files}, txt files: {txt_files}, matches: {len(matches)}")  # Debug
+                        if file_path not in seen:
+                            if search_text:
+                                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                                    content = f.read()
+                                    if search_text.lower() in content.lower():
+                                        matches.append(file_path)
+                                        seen.add(file_path)
+                            else:
+                                matches.append(file_path)
+                                seen.add(file_path)
 
             if not matches and search_text:
                 toast = Adw.Toast(title="No matches found")
@@ -1843,47 +1506,36 @@ class WhisperApp(Adw.Application):
                 self.toast_overlay.add_toast(toast)
 
             if not matches and not search_text:
-                print("No txt files found")  # Debug
-                row = Gtk.ListBoxRow()
-                row_content = Adw.ActionRow()
-                row_content.set_title("No transcripts found")
-                row_content.set_subtitle(f"No .txt files in {out_dir}")
-                row.set_child(row_content)
-                self.transcripts_group.append(row)
+                row = Adw.ActionRow()
+                row.set_title("No transcripts found")
+                row.set_subtitle(f"No .txt files in {out_dir}")
+                self.transcripts_group.add(row)
                 return
 
             for file_path in matches:
-                print(f"Adding row for: {file_path}")  # Debug
-                row = Gtk.ListBoxRow()
-                row_content = Adw.ActionRow()
-                row_content.set_title(os.path.basename(file_path))
-                row_content.set_subtitle(file_path)
-                row.file_path = file_path  # Store file path as attribute
-
-                open_btn = Gtk.Button()
-                open_btn.set_icon_name("folder-open-symbolic")
-                open_btn.set_valign(Gtk.Align.CENTER)
-                open_btn.add_css_class("flat")
-                open_btn.set_tooltip_text("Open transcript in default editor")
-                open_btn.connect("clicked", lambda btn, path=file_path: self._open_transcript_file(path))
-                row_content.add_suffix(open_btn)
-
-                row.set_child(row_content)
-                self.transcripts_group.append(row)
-            print(f"Added {len(matches)} rows")  # Debug
+                self.add_transcript_to_list(os.path.basename(file_path), file_path)
 
         except Exception as e:
-            print(f"Error in _update_transcripts_list: {e}")  # Debug
-            import traceback
-            traceback.print_exc()
             self._error(f"Failed to load transcripts: {e}")
+
+    def _browse_out_settings(self, button):
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select Output Directory")
+        dialog.set_accept_label("Select")
+        dialog.select_folder(self.window, None, self._on_browse_out_response)
+
+    def _on_browse_out_response(self, dialog, result):
+        try:
+            folder = dialog.select_folder_finish(result)
+            if folder:
+                self.output_directory = folder.get_path()
+                self.output_settings_row.set_subtitle(self.output_directory)
+                self.save_settings()
+                if self.output_value_label:
+                    self.output_value_label.set_label(self.output_directory)
+        except GLib.Error:
+            pass
 
 if __name__ == "__main__":
     app = WhisperApp()
     app.run()
-
-
-
-
-
-
