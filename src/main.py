@@ -19,6 +19,20 @@ MODEL_SIZE_MB = {
     "large":  2960
 }
 
+HOME_DIR = str(Path.home())
+
+def _human_path(path: str) -> str:
+    """Return path with $HOME abbreviated to ~, if applicable."""
+    if not path:
+        return path
+    path = str(path)
+    if path == HOME_DIR:
+        return "~"
+    if path.startswith(HOME_DIR + os.sep):
+        return "~" + path[len(HOME_DIR):]
+    return path
+
+
 class WhisperApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id="io.github.JaredTweed.AudioToTextTranscriber")
@@ -217,7 +231,7 @@ class WhisperApp(Adw.Application):
 
         file_row = Adw.ActionRow()
         file_row.set_title(filename)
-        file_row.set_subtitle(os.path.dirname(file_path) or "Local File")
+        file_row.set_subtitle(_human_path(os.path.dirname(file_path)) or "Local File")
 
         progress_widget = Gtk.Image()
         file_row.add_suffix(progress_widget)
@@ -261,7 +275,7 @@ class WhisperApp(Adw.Application):
 
         transcript_row = Adw.ActionRow()
         transcript_row.set_title(filename)
-        transcript_row.set_subtitle(os.path.dirname(file_path) or "Local File")
+        transcript_row.set_subtitle(_human_path(os.path.dirname(file_path)) or "Local File")
 
         open_btn = Gtk.Button()
         open_btn.set_icon_name("folder-open-symbolic")
@@ -564,13 +578,13 @@ class WhisperApp(Adw.Application):
             new_icon.set_spinning(True)
         else:
             icon_name = {
-                'waiting':   'hourglass-symbolic',
+                'waiting':   None,
                 'completed': None,
                 'cancelled': 'process-stop-symbolic',
                 'error':     'dialog-error-symbolic',
                 'skipped':   'dialog-information-symbolic',
-            }.get(status, 'hourglass-symbolic')
-            new_icon = Gtk.Image.new_from_icon_name(icon_name)
+            }.get(status, None)          # ← default is also None
+            new_icon = Gtk.Image.new_from_icon_name(icon_name) if icon_name else Gtk.Image()
 
         if remove_btn.get_parent():
             row.remove(remove_btn)
@@ -671,7 +685,10 @@ class WhisperApp(Adw.Application):
         if self.model_value_label:
             self.model_value_label.set_label(self._display_name(core))
         if self.output_value_label:
-            self.output_value_label.set_label(self.output_directory or "Not set")
+            self.output_value_label.set_label(
+                _human_path(self.output_directory) if self.output_directory
+                else "Not set"
+            )
         return exists
 
     def on_model_btn(self, _):
@@ -943,6 +960,9 @@ class WhisperApp(Adw.Application):
             self._gui_status("Cancelling...")
             return
 
+
+        self._reset_rows_if_needed()
+
         selected_index = self.model_combo.get_selected()
         if selected_index == Gtk.INVALID_LIST_POSITION:
             self._error("No model selected in settings.")
@@ -992,6 +1012,26 @@ class WhisperApp(Adw.Application):
             dialog.present(self.window)
         else:
             self._start_transcription(files, model_path, out_dir, core)
+
+    # -----------------------------------------------------------------
+    # HELPER: put rows back to a pristine “waiting” state
+    # -----------------------------------------------------------------
+    def _reset_rows_if_needed(self):
+        for file_data in self.progress_items:
+            default_sub = _human_path(os.path.dirname(file_data['path'])) or "Local File"
+
+            # We need to reset if:
+            #   • the previous icon shows a cancelled / error status
+            #   • OR the subtitle isn’t the default one any more
+            if file_data['status'] in ('error', 'cancelled') \
+               or file_data['row'].get_subtitle() != default_sub:
+
+                # Clear any old log text
+                if file_data['buffer']:
+                    file_data['buffer'].set_text("")
+
+                # Bring row back to “waiting” with its default subtitle
+                self.update_file_status(file_data, 'waiting', default_sub)
 
     def _on_conflict_response(self, response, conflicting_files, non_conflicting_files, model_path, out_dir, core):
         if response == "overwrite":
@@ -1079,12 +1119,15 @@ class WhisperApp(Adw.Application):
                     GLib.idle_add(_save)
                     GLib.idle_add(self.update_file_status, file_data, 'completed', "Completed successfully")
 
-        GLib.idle_add(self.reset_btn.set_visible, True)
-        GLib.idle_add(self.add_more_button.set_visible, False)
         if self.cancel_flag:
             self._gui_status("Cancelled")
             GLib.idle_add(self._reset_btn)
+            GLib.idle_add(self.reset_btn.set_visible, False)   # keep it hidden
+            GLib.idle_add(self.add_more_button.set_visible, True)
         else:
+            GLib.idle_add(self.reset_btn.set_visible, True)    # show only on success
+            GLib.idle_add(self.add_more_button.set_visible, False)
+
             self._gui_status("Done")
             GLib.idle_add(self.trans_btn.set_label, "Transcription Complete")
             GLib.idle_add(self.trans_btn.set_sensitive, False)
@@ -1190,7 +1233,7 @@ class WhisperApp(Adw.Application):
         output_group.set_title("Output")
         self.output_settings_row = Adw.ActionRow()
         self.output_settings_row.set_title("Output Directory")
-        self.output_settings_row.set_subtitle(self.output_directory)
+        self.output_settings_row.set_subtitle(_human_path(self.output_directory))
         browse_settings_btn = Gtk.Button()
         browse_settings_btn.set_icon_name("folder-open-symbolic")
         browse_settings_btn.set_valign(Gtk.Align.CENTER)
@@ -1285,7 +1328,7 @@ class WhisperApp(Adw.Application):
 
         menu = Gio.Menu()
         menu.append("Timestamps", "app.toggle-timestamps")
-        menu.append("Remove All Audio", "app.remove-all-audio")
+        menu.append("Clear All Audio", "app.remove-all-audio")
         menu.append("Settings", "app.settings")
         menu.append("About", "app.about")
         menu_button.set_menu_model(menu)
@@ -1317,7 +1360,7 @@ class WhisperApp(Adw.Application):
         settings_info_box.append(model_label)
         settings_info_box.append(self.model_value_label)
         output_label = Gtk.Label(label="Output Directory: ")
-        self.output_value_label = Gtk.Label(label=self.output_directory or "Not set")
+        self.output_value_label = Gtk.Label(label=_human_path(self.output_directory) or "Not set")
         settings_info_box.append(output_label)
         settings_info_box.append(self.output_value_label)
         settings_button = Gtk.Button(label="Settings")
@@ -1508,7 +1551,7 @@ class WhisperApp(Adw.Application):
             if not matches and not search_text:
                 row = Adw.ActionRow()
                 row.set_title("No transcripts found")
-                row.set_subtitle(f"No .txt files in {out_dir}")
+                row.set_subtitle(f"No .txt files in {_human_path(out_dir)}")
                 self.transcripts_group.add(row)
                 return
 
@@ -1528,11 +1571,15 @@ class WhisperApp(Adw.Application):
         try:
             folder = dialog.select_folder_finish(result)
             if folder:
-                self.output_directory = folder.get_path()
-                self.output_settings_row.set_subtitle(self.output_directory)
+                self.output_directory = folder.get_path()                 # raw path
+                self.output_settings_row.set_subtitle(
+                    _human_path(self.output_directory)                    # display
+                )
                 self.save_settings()
                 if self.output_value_label:
-                    self.output_value_label.set_label(self.output_directory)
+                    self.output_value_label.set_label(
+                        _human_path(self.output_directory)
+                    )
         except GLib.Error:
             pass
 
