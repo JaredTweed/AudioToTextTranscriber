@@ -1,4 +1,5 @@
 import gi
+import re
 import os
 import subprocess
 import threading
@@ -39,6 +40,10 @@ class WhisperApp(Adw.Application):
         self.title = "Audio-To-Text Transcriber"
         self.settings_file = Path(GLib.get_user_data_dir()) / "AudioToTextTranscriber" / "Settings.yaml"
         self.load_settings()
+        Adw.StyleManager.get_default().connect(
+            "notify::dark",
+            lambda mgr, _p: self._refresh_highlight_tags()
+        )
         self.ts_enabled = True
         sd = os.path.abspath(os.path.dirname(__file__))
         self.repo_dir = os.path.join(sd, "whisper.cpp") if os.path.isdir(os.path.join(sd, "whisper.cpp")) else sd
@@ -62,6 +67,10 @@ class WhisperApp(Adw.Application):
         self.audio_store = Gtk.StringList()
         self.progress_items = []
         self.transcript_items = []
+        self._scan_handle = 0          # source-id of the debounce timer
+        self._scan_thread = None       # background Thread object
+        self.transcript_paths  = set()      #  <-- NEW
+        self.no_transcripts_row = None      #  <-- NEW
         self.files_group = None
         self.transcripts_group = None
         self.search_entry = None
@@ -155,7 +164,7 @@ class WhisperApp(Adw.Application):
         transcribe_scrolled.set_hexpand(True)
         transcribe_scrolled.set_child(transcribe_box)
 
-        self.stack.add_titled(transcribe_scrolled, "transcribe", "Transcribe")
+        self.stack.add_titled(transcribe_scrolled, "transcribe", "Transcriber")
 
         # View Transcripts View
         transcripts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -192,7 +201,7 @@ class WhisperApp(Adw.Application):
         transcripts_scrolled.set_hexpand(True)
         transcripts_scrolled.set_child(transcripts_box)
 
-        self.stack.add_titled(transcripts_scrolled, "transcripts", "View Transcripts")
+        self.stack.add_titled(transcripts_scrolled, "transcripts", "Transcripts")
 
         # View Switcher
         self.view_switcher = Adw.ViewSwitcher()
@@ -270,6 +279,15 @@ class WhisperApp(Adw.Application):
         return file_data
 
     def add_transcript_to_list(self, filename, file_path):
+        # ‼️  Ignore duplicates completely
+        if file_path in self.transcript_paths:
+            return
+
+        # If the “no transcripts” placeholder is showing, remove it
+        if self.no_transcripts_row and self.no_transcripts_row.get_parent():
+            self.transcripts_group.remove(self.no_transcripts_row)
+            self.no_transcripts_row = None
+
         if not self.transcripts_group:
             raise RuntimeError("Transcripts group not initialized.")
 
@@ -308,6 +326,7 @@ class WhisperApp(Adw.Application):
             'is_viewed': False
         }
         self.transcript_items.append(transcript_data)
+        self.transcript_paths.add(file_path)
 
         transcript_row.set_activatable(True)
         transcript_row.connect('activated', lambda r: self._show_transcript_content(transcript_data))
@@ -396,10 +415,8 @@ class WhisperApp(Adw.Application):
             
             buffer = Gtk.TextBuffer()
             # Check if highlight tag exists
-            tag_table = buffer.get_tag_table()
-            highlight_tag = tag_table.lookup("highlight")
-            if not highlight_tag:
-                highlight_tag = buffer.create_tag("highlight", background="yellow")
+            self._ensure_highlight_tag(buffer)
+            highlight_tag = buffer.get_tag_table().lookup("highlight")
 
             text = file_data['buffer'].get_text(
                 file_data['buffer'].get_start_iter(),
@@ -481,10 +498,8 @@ class WhisperApp(Adw.Application):
             
             buffer = Gtk.TextBuffer()
             # Check if highlight tag exists
-            tag_table = buffer.get_tag_table()
-            highlight_tag = tag_table.lookup("highlight")
-            if not highlight_tag:
-                highlight_tag = buffer.create_tag("highlight", background="yellow")
+            self._ensure_highlight_tag(buffer)
+            highlight_tag = buffer.get_tag_table().lookup("highlight")
 
             text = transcript_data['buffer'].get_text(
                 transcript_data['buffer'].get_start_iter(),
@@ -534,24 +549,41 @@ class WhisperApp(Adw.Application):
         content_window.set_content(toolbar_view)
         content_window.present()
 
-    def _highlight_text(self, text_view, search_text):
-        buffer = text_view.get_buffer()
-        buffer.remove_all_tags(buffer.get_start_iter(), buffer.get_end_iter())
+    def _ensure_highlight_tag(self, buffer: Gtk.TextBuffer):
+        style_mgr = Adw.StyleManager.get_default()
+        dark      = style_mgr.get_dark()
+
+        # pleasant pastel yellow for light, amber-500 for dark
+        light_rgba = Gdk.RGBA(); light_rgba.parse("#ffe600")      #  90 % L*
+        dark_rgba  = Gdk.RGBA(); dark_rgba.parse("#b87700")       #  36 % L*
+
         tag_table = buffer.get_tag_table()
-        highlight_tag = tag_table.lookup("highlight")
-        if not highlight_tag:
-            highlight_tag = buffer.create_tag("highlight", background="yellow")
-        if search_text:
-            text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False).lower()
-            start_pos = 0
-            while True:
-                start_pos = text.find(search_text.lower(), start_pos)
-                if start_pos == -1:
-                    break
-                start_iter = buffer.get_iter_at_offset(start_pos)
-                end_iter = buffer.get_iter_at_offset(start_pos + len(search_text))
-                buffer.apply_tag(highlight_tag, start_iter, end_iter)
-                start_pos += len(search_text)
+        tag = tag_table.lookup("highlight")
+        if tag is None:
+            tag = buffer.create_tag("highlight")
+
+        tag.set_property("background-rgba", dark_rgba if dark else light_rgba)
+
+    def _refresh_highlight_tags(self):
+        # update every existing buffer
+        for t in self.transcript_items:
+            self._ensure_highlight_tag(t['buffer'])
+        for f in self.progress_items:
+            self._ensure_highlight_tag(f['buffer'])
+
+    def _highlight_text(self, text_view, search_text: str):
+        buf = text_view.get_buffer()
+        buf.remove_tag_by_name("highlight", buf.get_start_iter(), buf.get_end_iter())
+        if not search_text:
+            return
+
+        pattern = re.compile(re.escape(search_text), re.IGNORECASE | re.UNICODE)
+        txt = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+
+        for m in pattern.finditer(txt):
+            start_it = buf.get_iter_at_offset(m.start())
+            end_it   = buf.get_iter_at_offset(m.end())
+            buf.apply_tag_by_name("highlight", start_it, end_it)
 
     def create_output_widget(self, data):
         scrolled = Gtk.ScrolledWindow()
@@ -993,7 +1025,7 @@ class WhisperApp(Adw.Application):
         non_conflicting_files = []
         for file_path in files:
             filename = os.path.basename(file_path)
-            dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
+            dest = os.path.join(out_dir, os.path.splitext(filename)[0] + "_transcribed.txt")
             if os.path.isfile(dest) and os.path.getsize(dest) > 0:
                 conflicting_files.append(file_path)
             else:
@@ -1103,7 +1135,7 @@ class WhisperApp(Adw.Application):
                     GLib.idle_add(self.add_log_text, file_data, f"ERROR: {error}")
                 else:
                     self.current_proc.stderr.close()
-                    dest = os.path.join(out_dir, os.path.splitext(filename)[0] + ".txt")
+                    dest = os.path.join(out_dir, os.path.splitext(filename)[0] + "_transcribed.txt")
                     def _save():
                         if file_data and 'buffer' in file_data and file_data['buffer']:
                             txt = file_data['buffer'].get_text(
@@ -1147,13 +1179,6 @@ class WhisperApp(Adw.Application):
         b.remove_css_class("suggested-action")
 
     def _gui_status(self, msg):
-        if msg == "Idle":
-            selected_index = self.model_combo.get_selected()
-            if selected_index != Gtk.INVALID_LIST_POSITION:
-                active = self.model_strings.get_string(selected_index)
-                core = self.display_to_core.get(active, "None")
-                name = self._display_name(core)
-                msg = f"Idle, Model: {name}"
         GLib.idle_add(self.status_lbl.set_label, msg)
 
     def _reset_btn(self):
@@ -1300,9 +1325,6 @@ class WhisperApp(Adw.Application):
             spinner {
                 -gtk-icon-size: 16px;
             }
-            .highlight {
-                background-color: yellow;
-            }
         """.encode('utf-8'))
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(),
@@ -1353,24 +1375,40 @@ class WhisperApp(Adw.Application):
         main_box.append(self.view_switcher)
         main_box.append(self.stack)
 
-        # Settings Info
-        settings_info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        model_label = Gtk.Label(label="Model: ")
-        self.model_value_label = Gtk.Label(label=self._display_name(self._get_model_name()))
-        settings_info_box.append(model_label)
-        settings_info_box.append(self.model_value_label)
-        output_label = Gtk.Label(label="Output Directory: ")
-        self.output_value_label = Gtk.Label(label=_human_path(self.output_directory) or "Not set")
-        settings_info_box.append(output_label)
-        settings_info_box.append(self.output_value_label)
-        settings_button = Gtk.Button(label="Settings")
-        settings_button.connect("clicked", lambda btn: self.on_settings(None, None))
-        settings_info_box.append(settings_button)
-        main_box.append(settings_info_box)
+        # ── footer ─────────────────────────────────────────────
+        # Line 1 : Model          (Status)
+        model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        model_box.set_halign(Gtk.Align.START)
 
-        self.status_lbl = Gtk.Label(label="Idle")
-        self.status_lbl.set_halign(Gtk.Align.START)
-        main_box.append(self.status_lbl)
+        model_box.append(Gtk.Label(label="Model: "))
+        self.model_value_label = Gtk.Label(
+            label=self._display_name(self._get_model_name())
+        )
+        model_box.append(self.model_value_label)
+
+        model_box.append(Gtk.Label(label=" ("))
+        self.status_lbl = Gtk.Label(label="Idle")          # <- status now lives here
+        model_box.append(self.status_lbl)
+        model_box.append(Gtk.Label(label=")"))
+
+        main_box.append(model_box)
+
+        # Line 2 : Output Directory          [Settings]
+        output_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        output_box.set_halign(Gtk.Align.START)
+
+        output_box.append(Gtk.Label(label="Output Directory: "))
+        self.output_value_label = Gtk.Label(
+            label=_human_path(self.output_directory) or "Not set"
+        )
+        output_box.append(self.output_value_label)
+
+        settings_button = Gtk.Button(label="Settings")
+        settings_button.connect("clicked",
+                                lambda btn: self.on_settings(None, None))
+        output_box.append(settings_button)
+
+        main_box.append(output_box)
 
         self._refresh_model_menu()
         self._update_model_btn()
@@ -1460,10 +1498,8 @@ class WhisperApp(Adw.Application):
                 lines = f.readlines()
 
             buffer = Gtk.TextBuffer()
-            tag_table = buffer.get_tag_table()
-            highlight_tag = tag_table.lookup("highlight")
-            if not highlight_tag:
-                highlight_tag = buffer.create_tag("highlight", background="yellow")
+            self._ensure_highlight_tag(buffer)
+            highlight_tag = buffer.get_tag_table().lookup("highlight")
 
             search_text = self.search_entry.get_text().strip().lower()
 
@@ -1505,61 +1541,84 @@ class WhisperApp(Adw.Application):
 
     def _open_transcript_file(self, file_path):
         try:
-            subprocess.run(["xdg-open", str(file_path)], check=True)
+            Gio.AppInfo.launch_default_for_uri(
+                Gio.File.new_for_path(file_path).get_uri(), None
+            )
         except subprocess.CalledProcessError as e:
             GLib.idle_add(self._error, f"Failed to open transcript: {e}")
 
-    def on_search_changed(self, entry):
-        search_text = entry.get_text().strip()
-        self._update_transcripts_list(search_text)
+    def on_search_changed(self, entry: Gtk.SearchEntry):
+        text = entry.get_text().strip()
+        if self._scan_handle:
+            GLib.source_remove(self._scan_handle)
+            self._scan_handle = 0          # <-- important
+        self._scan_handle = GLib.timeout_add(
+            300,
+            lambda: (self._spawn_scan_thread(text), False)
+        )
 
-    def _update_transcripts_list(self, search_text):
-        # Clear existing transcripts
-        for transcript_data in self.transcript_items[:]:
-            if transcript_data['row'].get_parent():
-                self.transcripts_group.remove(transcript_data['row'])
-        self.transcript_items.clear()
+    def _spawn_scan_thread(self, search_text: str):
+        # if a previous scan is still running just let it finish
+        if self._scan_thread and self._scan_thread.is_alive():
+            return
+        self._scan_thread = threading.Thread(
+            target=self._update_transcripts_list,
+            args=(search_text,),
+            daemon=True,
+        )
+        self._scan_thread.start()
 
+    
+
+    # ─── replace the whole method ───────────────────────────────────
+    def _update_transcripts_list(self, search_text: str):
+        matches = []
         out_dir = self.output_directory or os.path.expanduser("~/Downloads")
-        if not os.path.isdir(out_dir):
-            self._error("Output directory is invalid.")
+
+        try:
+            for root, _, files in os.walk(out_dir):
+                for fname in files:
+                    if not fname.endswith("_transcribed.txt"):
+                        continue
+                    full = os.path.join(root, fname)
+                    if search_text and search_text.lower() not in fname.lower():
+                        with open(full, "r", encoding="utf-8", errors="replace") as f:
+                            if search_text.lower() not in f.read().lower():
+                                continue
+                    matches.append(full)
+        except Exception as e:
+            GLib.idle_add(self._error, f"Failed to scan transcripts: {e}")
             return
 
-        matches = []
-        seen = set()
-        try:
-            for root, _, files in sorted(os.walk(out_dir)):
-                for file in sorted(files):
-                    if file.endswith(".txt"):
-                        file_path = os.path.join(root, file)
-                        if file_path not in seen:
-                            if search_text:
-                                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                                    content = f.read()
-                                    if search_text.lower() in content.lower():
-                                        matches.append(file_path)
-                                        seen.add(file_path)
-                            else:
-                                matches.append(file_path)
-                                seen.add(file_path)
+        # push the UI changes back onto the main thread
+        GLib.idle_add(self._rebuild_transcript_rows, matches)
 
-            if not matches and search_text:
-                toast = Adw.Toast(title="No matches found")
-                toast.set_timeout(3)
-                self.toast_overlay.add_toast(toast)
 
-            if not matches and not search_text:
-                row = Adw.ActionRow()
-                row.set_title("No transcripts found")
-                row.set_subtitle(f"No .txt files in {_human_path(out_dir)}")
-                self.transcripts_group.add(row)
-                return
+    def _rebuild_transcript_rows(self, matches: list[str]):
+        # 1. Remove rows we previously inserted
+        for t in self.transcript_items:
+            if t['row'].get_parent():
+                self.transcripts_group.remove(t['row'])
+        self.transcript_items.clear()
+        self.transcript_paths.clear()
 
-            for file_path in matches:
-                self.add_transcript_to_list(os.path.basename(file_path), file_path)
+        if self.no_transcripts_row and self.no_transcripts_row.get_parent():
+            self.transcripts_group.remove(self.no_transcripts_row)
+        self.no_transcripts_row = None
 
-        except Exception as e:
-            self._error(f"Failed to load transcripts: {e}")
+        # 2. Show placeholder or rebuild rows
+        if not matches:
+            self.no_transcripts_row = Adw.ActionRow()
+            self.no_transcripts_row.set_title("No transcripts found")
+            out_dir = _human_path(self.output_directory or os.path.expanduser("~/Downloads"))
+            self.no_transcripts_row.set_subtitle(f"No *_transcribed.txt* files in {out_dir}")
+            self.transcripts_group.add(self.no_transcripts_row)
+            return
+
+        for path in sorted(matches):
+            self.add_transcript_to_list(os.path.basename(path), path)
+
+
 
     def _browse_out_settings(self, button):
         dialog = Gtk.FileDialog()
