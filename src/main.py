@@ -984,12 +984,33 @@ class WhisperApp(Adw.Application):
         self.audio_store.splice(0, self.audio_store.get_n_items(), [])
         self._show_no_files_message()
 
+    # ── 1.  add a helper that delegates to the existing handler ──────────
+    def _on_window_dnd_drop(self, drop_target, value, x, y):
+        # Accept only while the Transcriber view is visible
+        if self.stack.get_visible_child_name() != "transcribe":
+            return False                         # let other handlers ignore it
+        # Re‑use the original drop logic
+        return self._on_dnd_drop(drop_target, value, x, y)
+
+    # ── 2.  extend the existing DND setup ────────────────────────────────
     def _setup_dnd(self):
-        target = Gtk.DropTarget.new(type=Gdk.FileList, actions=Gdk.DragAction.COPY)
-        target.connect("drop", self._on_dnd_drop)
-        self.files_group.add_controller(target)
+        # (a) keep the old target on the files list so the cursor changes
+        list_target = Gtk.DropTarget.new(type=Gdk.FileList,
+                                         actions=Gdk.DragAction.COPY)
+        list_target.connect("drop", self._on_dnd_drop)
+        self.files_group.add_controller(list_target)
+
+        # (b) NEW: accept drops anywhere on the window
+        win_target = Gtk.DropTarget.new(type=Gdk.FileList,
+                                        actions=Gdk.DragAction.COPY)
+        win_target.connect("drop", self._on_window_dnd_drop)
+        self.window.add_controller(win_target)
+
 
     def _on_dnd_drop(self, drop_target, value, x, y):
+        if self.stack.get_visible_child_name() != "transcribe":
+            return False
+
         files = value.get_files()
         new_paths = self._collect_audio_files(files)
         for path in new_paths:
