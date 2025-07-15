@@ -6,6 +6,10 @@ Transcribes audio. I use it so i can search through my audio files quickly for w
 
 Go to the src, and run `./build.sh`.
 
+## Where to get audio to test this
+
+https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
+
 ## Future things to add/fix
 
 * allow draging files into desired order. (issue postponed until after flatpak is published on flathub).
