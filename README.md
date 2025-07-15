@@ -16,10 +16,3 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 * fix issue where icon is not displayed correctly in the about page.
 * fix issue where the icon is not displayed correctly in the taskbar.
 * have the smallest model installed by default
-
-
-## Creating AppImage (in progress) (likely will switch to only flatpak if possible).
-```
-./build-appimage.sh 2>&1 | tee build.log
-./Audio-to-Text_Transcriber-1.0.1-x86_64.AppImage
-```
