@@ -13,6 +13,4 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 ## Future things to add/fix
 
 * allow draging files into desired order. (issue postponed until after flatpak is published on flathub).
-* fix issue where icon is not displayed correctly in the about page.
-* fix issue where the icon is not displayed correctly in the taskbar.
 * have the smallest model installed by default
