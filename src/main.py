@@ -663,7 +663,7 @@ class WhisperApp(Adw.Application):
             developers=["Jared Tweed", "Mohammed Asif Ali Rizvan"],
             license_type=Gtk.License.GPL_3_0,
             comments="A GUI for whisper.cpp to transcribe audio files.",
-            website="https://github.com/your-repo"
+            website="https://github.com/JaredTweed/AudioToTextTranscriber",
         )
         about.present()
 
