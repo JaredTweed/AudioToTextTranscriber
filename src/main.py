@@ -37,6 +37,7 @@ def _human_path(path: str) -> str:
 class WhisperApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id="io.github.JaredTweed.AudioToTextTranscriber")
+        self._highlight_buffers: set[Gtk.TextBuffer] = set()
         self.title = "Audio-To-Text Transcriber"
         self.settings_file = Path(GLib.get_user_data_dir()) / "AudioToTextTranscriber" / "Settings.yaml"
         self.load_settings()
@@ -164,7 +165,13 @@ class WhisperApp(Adw.Application):
         transcribe_scrolled.set_hexpand(True)
         transcribe_scrolled.set_child(transcribe_box)
 
-        self.stack.add_titled(transcribe_scrolled, "transcribe", "Transcriber")
+        page = self.stack.add_titled(transcribe_scrolled, "transcribe", "Transcriber")
+        # Gtk / libadwaita ≤ 1.4
+        page.set_icon_name("media-record-symbolic")        # any symbolic name works
+
+        # libadwaita ≥ 1.4 (optionally – keeps older versions happy)
+        if hasattr(page, "set_icon"):                      # new API, accepts Gio.Icon
+            page.set_icon(Gio.ThemedIcon.new("media-record-symbolic"))
 
         # View Transcripts View
         transcripts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -201,7 +208,11 @@ class WhisperApp(Adw.Application):
         transcripts_scrolled.set_hexpand(True)
         transcripts_scrolled.set_child(transcripts_box)
 
-        self.stack.add_titled(transcripts_scrolled, "transcripts", "Transcripts")
+        page = self.stack.add_titled(transcripts_scrolled, "transcripts", "Transcripts")
+        
+        page.set_icon_name("text-x-generic-symbolic")
+        if hasattr(page, "set_icon"):
+            page.set_icon(Gio.ThemedIcon.new("text-x-generic-symbolic"))
 
         # View Switcher
         self.view_switcher = Adw.ViewSwitcher()
@@ -255,6 +266,7 @@ class WhisperApp(Adw.Application):
         remove_btn.connect("clicked", self._on_remove_file, file_path)
 
         output_buffer = Gtk.TextBuffer()
+        self._ensure_highlight_tag(output_buffer)
         output_view = Gtk.TextView.new_with_buffer(output_buffer)
         output_view.set_editable(False)
         output_view.set_monospace(True)
@@ -304,6 +316,7 @@ class WhisperApp(Adw.Application):
         transcript_row.add_suffix(open_btn)
 
         output_buffer = Gtk.TextBuffer()
+        self._ensure_highlight_tag(output_buffer) 
         output_view = Gtk.TextView.new_with_buffer(output_buffer)
         output_view.set_editable(False)
         output_view.set_monospace(True)
@@ -550,11 +563,13 @@ class WhisperApp(Adw.Application):
         content_window.present()
 
     def _ensure_highlight_tag(self, buffer: Gtk.TextBuffer):
+        self._highlight_buffers.add(buffer)
+
         style_mgr = Adw.StyleManager.get_default()
         dark      = style_mgr.get_dark()
 
         # pleasant pastel yellow for light, amber-500 for dark
-        light_rgba = Gdk.RGBA(); light_rgba.parse("#ffe600")      #  90 % L*
+        light_rgba = Gdk.RGBA(); light_rgba.parse("#ffe600")
         dark_rgba  = Gdk.RGBA(); dark_rgba.parse("#b87700")       #  36 % L*
 
         tag_table = buffer.get_tag_table()
@@ -565,11 +580,16 @@ class WhisperApp(Adw.Application):
         tag.set_property("background-rgba", dark_rgba if dark else light_rgba)
 
     def _refresh_highlight_tags(self):
-        # update every existing buffer
-        for t in self.transcript_items:
-            self._ensure_highlight_tag(t['buffer'])
-        for f in self.progress_items:
-            self._ensure_highlight_tag(f['buffer'])
+        """
+        Called automatically when Adwaita switches between light/dark.
+        We simply re-apply the right colour on every buffer we know about.
+        """
+        for buf in list(self._highlight_buffers):
+            # the buffer might have been destroyed – skip if so
+            if buf.__grefcount__ == 0:
+                self._highlight_buffers.discard(buf)
+                continue
+            self._ensure_highlight_tag(buf)
 
     def _highlight_text(self, text_view, search_text: str):
         buf = text_view.get_buffer()
