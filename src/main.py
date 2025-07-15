@@ -389,13 +389,14 @@ class WhisperApp(Adw.Application):
         pass
 
     def show_file_details(self, file_data):
-        details_window = Adw.Window()        # Adw.Window itself has no orientation
-        details_window.set_title("File Details")
-        details_window.set_default_size(400, 300)
+        return
+        # details_window = Adw.Window()        # Adw.Window itself has no orientation
+        # details_window.set_title("File Details")
+        # details_window.set_default_size(400, 300)
 
-        details_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        details_window.set_content(details_content)
-        details_window.present()
+        # details_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        # details_window.set_content(details_content)
+        # details_window.present()
 
     def _show_file_content(self, file_data):
         content_window = Adw.Window()
