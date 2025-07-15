@@ -8,7 +8,7 @@ Go to the src, and run `./build.sh`.
 
 ## Future things to add/fix
 
-* allow draging files into desired order.
+* allow draging files into desired order. (issue postponed until after flatpak is published on flathub).
 * fix issue where icon is not displayed correctly in the about page.
 * fix issue where the icon is not displayed correctly in the taskbar.
 * have the smallest model installed by default
