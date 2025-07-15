@@ -18,11 +18,11 @@ if os.path.dirname(__file__) not in sys.path:
     sys.path.insert(0, os.path.dirname(__file__))
 
 try:
-    import ui
-    import model
-    import transcribe
-    import view_transcripts
-    import settings
+    from . import ui
+    from . import model
+    from . import transcribe
+    from . import view_transcripts
+    from . import settings
 except ImportError as e:
     print(f"Import error: {e}")
     sys.exit(1)

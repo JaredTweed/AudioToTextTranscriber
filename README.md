@@ -4,7 +4,7 @@ Transcribes audio. I use it so i can search through my audio files quickly for w
 
 ## How to run
 
-Go to the src, and run `./build.sh`.
+Run `./build.sh` from the root directory.
 
 ## Where to get audio to test this
 

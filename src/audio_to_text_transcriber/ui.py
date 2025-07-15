@@ -11,7 +11,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject
 
-from helpers import human_path as _hp
+from .helpers import human_path as _hp
 
 def create_view_switcher_ui(self):
     self.stack = Adw.ViewStack()

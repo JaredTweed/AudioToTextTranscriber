@@ -6,7 +6,6 @@ sdk: org.gnome.Sdk
 command: audio-to-text-transcriber
 
 finish-args:
-finish-args:
   - --share=network
   - --socket=wayland
   - --socket=fallback-x11
@@ -19,6 +18,20 @@ finish-args:
   - --device=all
   
 modules:
+
+  # - name: python-build-tools
+  #   buildsystem: simple
+  #   build-commands:
+  #     - pip3 install --prefix=/app setuptools-70.1.1-py3-none-any.whl wheel-0.43.0-py3-none-any.whl
+  #   sources:
+  #     # setuptools 70.1.1
+  #     - type: file
+  #       url: "https://files.pythonhosted.org/packages/6c/52/f45e2524fa2c4e4e2845180c738d7168271a810e4053b8da42669588f231/setuptools-70.1.1-py3-none-any.whl"
+  #       sha256: "93d497570d68b5a681e51ac2a456774b2b983e11631f7bbfc93c0d8809d66426"  # verify with sha256sum if you update
+  #     # wheel 0.43.0
+  #     - type: file
+  #       url: "https://files.pythonhosted.org/packages/25/49/1fe01c095620746e2363102e7320a7c629ba39a3c34f2a2f4c3ff22eb651/wheel-0.43.0-py3-none-any.whl"
+  #       sha256: "a47ad6c8b5935ac4f18e64f3270f3ad1bb0ee1b8dc5a8275e1adfb8307005f1d"
 
   - name: pycparser
     buildsystem: simple
@@ -131,15 +144,12 @@ modules:
           name: numpy
           packagetype: bdist_wheel
 
-  - name: ui
+  - name: audio-to-text-transcriber
     buildsystem: simple
-    sources:
-      - type: file
-        path: audio-to-text-transcriber
-      - type: file
-        path: main.py
-
     build-commands:
-      - mkdir -p /app/bin 
-
-      - install -Dm755 main.py audio-to-text-transcriber /app/bin
+      # --no-build-isolation → don’t create a fresh venv (uses our vendored setuptools)
+      # --no-index           → never reach for the Internet
+      - PIP_NO_INDEX=1 pip3 install --prefix=/app --no-build-isolation .
+    sources:
+      - type: dir
+        path: ..      

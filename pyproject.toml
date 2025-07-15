@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audio-to-text-transcriber"
+version = "1.0.1"
+description = "Gui based on Whisper.cpp which transcribes audio to text"
+readme = "README.md"
+authors = [
+    { name = "Jared Tweed" },
+    { name = "Mohammed Asif Ali Rizvan" },
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=5.3",
+    "sounddevice>=0.4",
+    "cffi"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Utilities",
+]
+keywords = ["whisper", "transcription", "audio", "text", "gui", "gtk"]
+
+[project.urls]
+Homepage = "https://github.com/JaredTweed/AudioToTextTranscriber"
+Repository = "https://github.com/JaredTweed/AudioToTextTranscriber"
+Documentation = "https://github.com/JaredTweed/AudioToTextTranscriber/wiki"
+Issues = "https://github.com/JaredTweed/AudioToTextTranscriber/issues"
+
+[project.scripts]
+audio-to-text-transcriber = "audio_to_text_transcriber.main:main"
+
+[tool.setuptools]
+packages = ["audio_to_text_transcriber"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+audio_to_text_transcriber = ["data/**/*"]
+
+[tool.setuptools.data-files]
+"share/applications"                 = ["packaging/io.github.JaredTweed.AudioToTextTranscriber.desktop"]
+"share/metainfo"                     = ["packaging/io.github.JaredTweed.AudioToTextTranscriber.metainfo.xml"]
+"share/icons/hicolor/scalable/apps"  = ["packaging/io.github.JaredTweed.AudioToTextTranscriber.png"]
+
+[tool.audio-to-text-transcriber.system-dependencies]
+required = [
+    "whisper-cli",
+    "libgtk-4-0",
+    "gir1.2-gtk-4.0",
+    "gir1.2-adw-1",
+    "python3-gi",
+    "python3-yaml",
+]
+debian-packages = [
+    "whisper",
+    "libgtk-4-0",
+    "gir1.2-gtk-4.0",
+    "gir1.2-adw-1",
+    "python3-gi",
+    "python3-yaml",
+    "python3-dev",
+]
+fedora-packages = [
+    "whisper",
+    "gtk4",
+    "python3-gobject",
+    "python3-pyyaml",
+]

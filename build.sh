@@ -15,7 +15,7 @@ if [ "$1" = "bundle" ]; then
     flatpak build-bundle repo AudioToTextTranscriber.flatpak io.github.JaredTweed.AudioToTextTranscriber
 else
     echo "Building and running WineCharm..."
-    flatpak-builder --user --install --repo=repo --force-clean build-dir io.github.JaredTweed.AudioToTextTranscriber.yml
+    flatpak-builder --install --user --force-clean build-dir packaging/io.github.JaredTweed.AudioToTextTranscriber.yml
     flatpak kill io.github.JaredTweed.AudioToTextTranscriber 2> /dev/null
     flatpak run io.github.JaredTweed.AudioToTextTranscriber
 fi
