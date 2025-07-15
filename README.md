@@ -14,3 +14,5 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 
 * allow draging files into desired order. (issue postponed until after flatpak is published on flathub).
 * have the smallest model installed by default
+* Starting Transcribing should hide add audio files button or use it as 'Transcription' progress info 1/4
+* Reload button after transcription finishes should clear up the list.
