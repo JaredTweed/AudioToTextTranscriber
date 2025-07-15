@@ -389,7 +389,7 @@ class WhisperApp(Adw.Application):
         pass
 
     def show_file_details(self, file_data):
-        details_window = Adw.Window(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        details_window = Adw.Window()        # Adw.Window itself has no orientation
         details_window.set_title("File Details")
         details_window.set_default_size(400, 300)
 
@@ -645,6 +645,8 @@ class WhisperApp(Adw.Application):
 
         file_data['icon'] = new_icon
         file_data['status'] = status
+        # NB: during processing we overwrite the subtitle live from _worker,
+        # so here we only set an initial value or the final result.
         row.set_subtitle(message or status.title())
 
     def add_log_text(self, file_data, text):
@@ -1118,10 +1120,13 @@ class WhisperApp(Adw.Application):
 
             GLib.idle_add(self.update_file_status, file_data, 'processing', f"Transcribing ({idx}/{total})...")
 
-            cmd = [self.bin_path, "-m", model_path, "-f", file_path]
+            cmd = [self.bin_path, "-m", model_path, "-f", file_path, "-pp"]
             if not self.ts_enabled:
                 cmd.append("-nt")
 
+            # keep the streams separate:
+            #   · stdout  → transcript (plus a few noisy lines we’ll drop)
+            #   · stderr  → progress updates + errors
             self.current_proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -1130,6 +1135,45 @@ class WhisperApp(Adw.Application):
                 bufsize=1,
                 errors='replace'
             )
+
+            # ── WATCH STDERR FOR PERCENT, LIVE ───────────────────────────
+            def _watch_stderr(proc, row, idx, total):
+                buf      = ""           # rolling buffer holding the current line
+                last_pct = None         # last % we showed, to avoid spam
+
+                while True:
+                    ch = proc.stderr.read(1)          # read *one* char at a time
+                    if not ch:                        # EOF – done
+                        # process whatever is left in buf once more
+                        _maybe_update(buf, row, idx, total, last_pct)
+                        break
+
+                    if ch in ("\r", "\n"):            # line boundary
+                        last_pct = _maybe_update(buf, row, idx, total, last_pct)
+                        buf = ""                      # start fresh
+                    else:
+                        buf += ch
+
+            def _maybe_update(line, row, idx, total, last_pct):
+                m = re.search(r"progress\s*=\s*([\d.]+)%", line)
+                if m:
+                    pct = m.group(1)
+                    if pct != last_pct:               # only if it really changed
+                        GLib.idle_add(
+                            row.set_subtitle,
+                            f"Transcribing ({idx}/{total}) — {pct}%"
+                        )
+                    return pct                        # new “last” value
+                return last_pct
+
+            threading.Thread(
+                target=_watch_stderr,
+                args=(self.current_proc, file_data['row'], idx, total),
+                daemon=True
+            ).start()
+
+            # ── READ stdout and keep only the real transcript ───────────
+            ts_line   = re.compile(r"^\[\d\d:\d\d:\d\d")   # with timestamps
 
             for line in self.current_proc.stdout:
                 if self.cancel_flag:
@@ -1140,7 +1184,23 @@ class WhisperApp(Adw.Application):
                     GLib.idle_add(self.update_file_status, file_data, 'error', "Cancelled")
                     GLib.idle_add(self.add_log_text, file_data, "Transcription cancelled")
                     break
-                GLib.idle_add(self.add_log_text, file_data, line.rstrip())
+
+                # 1. drop completely empty lines
+                if not line.strip():
+                    continue
+
+                # 2. keep only “real” transcript lines
+                keep = False
+                if self.ts_enabled:
+                    # we expect the [hh:mm:ss.xxx --> yy:...] format
+                    keep = bool(ts_line.match(line))
+                else:
+                    # without timestamps: reject lines that *look* like logs
+                    keep = not line.lstrip().startswith(("whisper_", "system_info",
+                                                         "main:", "whisper_print_timings"))
+
+                if keep:
+                    GLib.idle_add(self.add_log_text, file_data, line.rstrip())
 
             self.current_proc.stdout.close()
             self.current_proc.wait()
@@ -1149,12 +1209,19 @@ class WhisperApp(Adw.Application):
                 GLib.idle_add(self.update_file_status, file_data, 'error', "Cancelled")
             else:
                 if self.current_proc.returncode != 0:
-                    error = self.current_proc.stderr.read().strip()
-                    self.current_proc.stderr.close()
-                    GLib.idle_add(self.update_file_status, file_data, 'error', f"Error occurred")
-                    GLib.idle_add(self.add_log_text, file_data, f"ERROR: {error}")
+                    # read remaining stderr so we can show the error
+                    err_msg = self.current_proc.stderr.read().strip()
+                    GLib.idle_add(
+                        self.update_file_status,
+                        file_data, 'error',
+                        f"Failed (exit {self.current_proc.returncode})"
+                    )
+                    GLib.idle_add(
+                        self.add_log_text,
+                        file_data,
+                        f"ERROR: {err_msg or 'process exited with code ' + str(self.current_proc.returncode)}"
+                    )
                 else:
-                    self.current_proc.stderr.close()
                     dest = os.path.join(out_dir, os.path.splitext(filename)[0] + "_transcribed.txt")
                     def _save():
                         if file_data and 'buffer' in file_data and file_data['buffer']:
@@ -1631,7 +1698,7 @@ class WhisperApp(Adw.Application):
             self.no_transcripts_row = Adw.ActionRow()
             self.no_transcripts_row.set_title("No transcripts found")
             out_dir = _human_path(self.output_directory or os.path.expanduser("~/Downloads"))
-            self.no_transcripts_row.set_subtitle(f"No *_transcribed.txt* files in {out_dir}")
+            self.no_transcripts_row.set_subtitle(f"No \"_transcribed.txt\" files in {out_dir}")
             self.transcripts_group.add(self.no_transcripts_row)
             return
 
