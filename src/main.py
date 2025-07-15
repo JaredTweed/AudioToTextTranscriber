@@ -1490,10 +1490,10 @@ class WhisperApp(Adw.Application):
         )
         output_box.append(self.output_value_label)
 
-        settings_button = Gtk.Button(label="Settings")
-        settings_button.connect("clicked",
-                                lambda btn: self.on_settings(None, None))
-        output_box.append(settings_button)
+        # settings_button = Gtk.Button(label="Settings")
+        # settings_button.connect("clicked",
+        #                         lambda btn: self.on_settings(None, None))
+        # output_box.append(settings_button)
 
         main_box.append(output_box)
 

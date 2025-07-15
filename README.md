@@ -8,7 +8,6 @@ Go to the src, and run `./build.sh`.
 
 ## Future things to add/fix
 
-* Show percentage complete when transcribing (likely will only work if the audio has timestamps).
 * allow draging files into desired order.
 * fix issue where icon is not displayed correctly in the about page.
 * fix issue where the icon is not displayed correctly in the taskbar.
