@@ -1,6 +1,11 @@
-feel free to make edits and contributions via pull requests. this is **open source**.
+<p align="center"><img width='190' src="https://github.com/JaredTweed/AudioToTextTranscriber/blob/main/images/icon-large.png">
+<h1 align="center">Audio-To-Text Transcriber</h1>
 
-Transcribes audio. I use it so i can search through my audio files quickly for work; either using ctrl+F in a text editor, or uploading the txt file to AI.
+<p align="center">Audio-To-Text Transcriber is a <a href="https://github.com/ggml-org/whisper.cpp">whisper.cpp</a> GUI app which allows you to locally transcribe audio files so that you can easily search through them.</p>
+
+<p align="center">This is app is completely open source, so please contribute and make it better!</p>
+
+<!--<p align="center"><a href='https://flathub.org/apps/io.github.JaredTweed.AudioToTextTranscriber'><img width='190' alt='Download on Flathub' src='https://flathub.org/api/badge?locale=en'/></a></p> -->
 
 ## How to run
 
