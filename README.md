@@ -21,9 +21,10 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 
 * allow draging files into desired order.
 * have the smallest model installed by default
-* Access whisper.cpp via the releases .zip.
+* Access whisper.cpp via the releases .zip in the whisper.cpp repo (or this repo) so that we can delete the old repo.
 * Every once and a while, it transcribes a txt, and then immediately wipes it so it is empty. We just need to prevent that.
 
 ### Intended to complete before flathub release
 
 We are ready for the flathub release!
+* update flatpak xml so that it show the newest images of the app.
