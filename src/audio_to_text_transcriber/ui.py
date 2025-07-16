@@ -86,12 +86,12 @@ def create_view_switcher_ui(self):
     self.search_entry.connect("search-changed", self.on_search_changed)
     search_bar.append(self.search_entry)
 
-    close_btn = Gtk.Button()
-    close_btn.set_icon_name("window-close-symbolic")
-    close_btn.add_css_class("flat")
-    close_btn.set_tooltip_text("Close search")
-    close_btn.connect("clicked", lambda btn: self.search_entry.set_text(""))
-    search_bar.append(close_btn)
+    # close_btn = Gtk.Button()
+    # close_btn.set_icon_name("window-close-symbolic")
+    # close_btn.add_css_class("flat")
+    # close_btn.set_tooltip_text("Close search")
+    # close_btn.connect("clicked", lambda btn: self.search_entry.set_text(""))
+    # search_bar.append(close_btn)
 
     transcripts_box.append(search_bar)
 
