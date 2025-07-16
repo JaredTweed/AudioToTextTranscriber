@@ -142,6 +142,8 @@ class WhisperApp(Adw.Application):
                 '_on_conflict_response',
                 '_start_transcription',
                 '_worker',
+                '_update_eta',
+                '_audio_seconds',
             ],
             view_transcripts: [
                 'add_transcript_to_list',

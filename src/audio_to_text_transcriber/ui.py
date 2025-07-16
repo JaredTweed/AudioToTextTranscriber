@@ -25,6 +25,14 @@ def create_view_switcher_ui(self):
     transcribe_box.set_margin_top(12)
     transcribe_box.set_margin_bottom(12)
 
+    # Progress Status Text
+    self.progress_lbl = Gtk.Label(label="")
+    self.progress_lbl.set_use_markup(True)   # allow <b>…</b>
+    self.progress_lbl.set_visible(False)
+    self.progress_lbl.set_margin_top(8)
+    self.progress_lbl.set_margin_bottom(8)
+    transcribe_box.append(self.progress_lbl)
+
     # Reset Button
     self.reset_btn = Gtk.Button()
     self.reset_btn.set_icon_name("view-refresh-symbolic")
@@ -432,9 +440,14 @@ def _gui_status(self, msg):
     GLib.idle_add(self.status_lbl.set_label, msg)
 
 def _reset_btn(self):
+    self.trans_btn.set_visible(True)  
     self.trans_btn.set_label("Transcribe")
     self._green(self.trans_btn)
     self.trans_btn.set_sensitive(self._update_model_btn())
+    # hide progress text, restore button
+    if hasattr(self, "progress_lbl"):
+        self.progress_lbl.set_visible(False)
+        self.progress_lbl.set_label("")
     if self.add_more_button:
         self.add_more_button.set_label("Add Audio Files")
         self.add_more_button.set_visible(True)
