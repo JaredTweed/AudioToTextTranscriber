@@ -70,6 +70,19 @@ def add_transcript_to_list(self, filename, file_path):
     return transcript_data
 
 def _show_transcript_content(self, transcript_data):
+    # ── 1. Always (re)load the file -----------------------------------------
+    try:
+        with open(transcript_data["path"], "r", encoding="utf‑8") as f:
+            latest_text = f.read()
+    except Exception as e:
+        latest_text = f"Error loading transcript: {e}"
+
+    if transcript_data.get("buffer") is None:
+        transcript_data["buffer"] = Gtk.TextBuffer()
+
+    transcript_data["buffer"].set_text(latest_text)
+
+    # ── 2. Continue building the viewer window ------------------------------
     content_window = Adw.Window()
     content_window.set_title("Transcript Content")
     content_window.set_default_size(400, 300)
