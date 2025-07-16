@@ -17,7 +17,15 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 
 ## Future things to add/fix
 
+### Postponed until after flatpak release
+
 * allow draging files into desired order. (issue postponed until after flatpak is published on flathub).
 * have the smallest model installed by default
+* Move tabs to where the title is currently. The title does not need to be in the app. Or alternatively, make it so that the tabs have the same margins in the window as the rows beneath. or something else we will brainstorm...
+
+### Intended to complete before flatpak release
+
 * Starting Transcribing should hide add audio files button or use it as 'Transcription' progress info 1/4
-* Reload button after transcription finishes should clear up the list.
+* Reload button after transcription finishes should clear up the list. And the transcribe button should be disabled after transcription.
+* Change the "transcriber" tab to have a logo that better represents conversion.
+* Show an estimate somewhere for the time until completion.
