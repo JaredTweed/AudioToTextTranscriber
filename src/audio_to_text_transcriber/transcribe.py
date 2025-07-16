@@ -456,19 +456,24 @@ def _worker(self, model_path, files, out_dir, core):
                     f"ERROR: {err_msg or 'process exited with code ' + str(self.current_proc.returncode)}"
                 )
             else:
-                dest = os.path.join(out_dir, os.path.splitext(filename)[0] + "_transcribed.txt")
-                def _save():
-                    if file_data and 'buffer' in file_data and file_data['buffer']:
-                        txt = file_data['buffer'].get_text(
-                            file_data['buffer'].get_start_iter(),
-                            file_data['buffer'].get_end_iter(),
-                            False
-                        )
-                        with open(dest, "w", encoding="utf-8") as f:
-                            f.write(txt)
-                        if dest not in [item['path'] for item in self.transcript_items]:
-                            GLib.idle_add(self.add_transcript_to_list, os.path.basename(dest), dest)
-                    return False
+                dest_path = os.path.join(out_dir,
+                                        os.path.splitext(filename)[0] + "_transcribed.txt")
+                buffer    = file_data['buffer']          # local alias – crucial!
+
+                def _save(buf=buffer, dest=dest_path):
+                    if buf and buf.get_char_count() > 0:
+                        txt = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+                        try:
+                            with open(dest, "w", encoding="utf-8") as f:
+                                f.write(txt)
+                        except Exception as e:
+                            print(f"Failed to save {dest}: {e}")
+                        # register in Transcripts pane exactly once
+                        if dest not in (item['path'] for item in self.transcript_items):
+                            GLib.idle_add(self.add_transcript_to_list,
+                                          os.path.basename(dest), dest)
+                    return False                         # stop the idle handler
+
                 GLib.idle_add(_save)
                 GLib.idle_add(self.update_file_status, file_data, 'completed', "Completed successfully")
 
