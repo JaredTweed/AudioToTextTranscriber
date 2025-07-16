@@ -7,5 +7,6 @@ AudioSamples/
 *.bin
 *.wav
 *.mp3
+whisper-cli
 models/
 src/flatpak/
