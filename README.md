@@ -17,13 +17,13 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 
 ## Future things to add/fix
 
-### Postponed until after flatpak release
+### Postponed until after flathub release
 
-* allow draging files into desired order. (issue postponed until after flatpak is published on flathub).
+* allow draging files into desired order.
 * have the smallest model installed by default
-* Move tabs to where the title is currently. The title does not need to be in the app. Or alternatively, make it so that the tabs have the same margins in the window as the rows beneath. or something else we will brainstorm...
 * Access whisper.cpp via the releases .zip.
+* Every once and a while, it transcribes a txt, and then immediately wipes it so it is empty. We just need to prevent that.
 
-### Intended to complete before flatpak release
+### Intended to complete before flathub release
 
-We are ready for the flatpak release!
+We are ready for the flathub release!
