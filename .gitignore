@@ -2,3 +2,10 @@
 build-dir/
 repo/
 AudioSamples/
+
+*.zip
+*.bin
+*.wav
+*.mp3
+models/
+src/flatpak/
