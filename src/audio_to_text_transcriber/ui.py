@@ -57,11 +57,11 @@ def create_view_switcher_ui(self):
 
     page = self.stack.add_titled(transcribe_scrolled, "transcribe", "Transcriber")
     # Gtk / libadwaita ≤ 1.4
-    page.set_icon_name("media-record-symbolic")        # any symbolic name works
+    page.set_icon_name("input-keyboard-symbolic")        # any symbolic name works
 
     # libadwaita ≥ 1.4 (optionally – keeps older versions happy)
     if hasattr(page, "set_icon"):                      # new API, accepts Gio.Icon
-        page.set_icon(Gio.ThemedIcon.new("media-record-symbolic"))
+        page.set_icon(Gio.ThemedIcon.new("input-keyboard-symbolic"))
 
     # View Transcripts View
     transcripts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)

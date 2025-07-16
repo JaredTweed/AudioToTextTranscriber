@@ -27,5 +27,4 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 
 * Starting Transcribing should hide add audio files button or use it as 'Transcription' progress info 1/4
 * Reload button after transcription finishes should clear up the list. And the transcribe button should be disabled after transcription.
-* Change the "transcriber" tab to have a logo that better represents conversion.
 * Show an estimate somewhere for the time until completion.

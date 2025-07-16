@@ -19,20 +19,6 @@ finish-args:
   
 modules:
 
-  # - name: python-build-tools
-  #   buildsystem: simple
-  #   build-commands:
-  #     - pip3 install --prefix=/app setuptools-70.1.1-py3-none-any.whl wheel-0.43.0-py3-none-any.whl
-  #   sources:
-  #     # setuptools 70.1.1
-  #     - type: file
-  #       url: "https://files.pythonhosted.org/packages/6c/52/f45e2524fa2c4e4e2845180c738d7168271a810e4053b8da42669588f231/setuptools-70.1.1-py3-none-any.whl"
-  #       sha256: "93d497570d68b5a681e51ac2a456774b2b983e11631f7bbfc93c0d8809d66426"  # verify with sha256sum if you update
-  #     # wheel 0.43.0
-  #     - type: file
-  #       url: "https://files.pythonhosted.org/packages/25/49/1fe01c095620746e2363102e7320a7c629ba39a3c34f2a2f4c3ff22eb651/wheel-0.43.0-py3-none-any.whl"
-  #       sha256: "a47ad6c8b5935ac4f18e64f3270f3ad1bb0ee1b8dc5a8275e1adfb8307005f1d"
-
   - name: pycparser
     buildsystem: simple
     build-commands: 
@@ -89,7 +75,7 @@ modules:
     buildsystem: cmake-ninja
     sources:
       - type: archive
-        url: https://github.com/JaredTweed/AudioToTextTranscriber/releases/download/v1.0.1/v1.0.1.zip
+        url: https://github.com/JaredTweed/AudioToTextTranscriber-old/releases/download/v1.0.1/v1.0.1.zip
       
         sha256: 693d2d91c3081e4e402e12c3737e585fccf2eba527dd510bf5ae11548b82f9fc
         strip-components: 0 
