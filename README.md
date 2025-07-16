@@ -25,6 +25,6 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 
 ### Intended to complete before flatpak release
 
-* Starting Transcribing should hide add audio files button or use it as 'Transcription' progress info 1/4
+* Starting Transcribing should replace "add audio files" button with transcription progress info e.g., "34% \(~3:26\)" or "Transcribing..."
 * Reload button after transcription finishes should clear up the list. And the transcribe button should be disabled after transcription.
 * Show an estimate somewhere for the time until completion.

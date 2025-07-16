@@ -232,6 +232,7 @@ def _start_transcription(self, files, model_path, out_dir, core):
     self.cancel_flag = False
     self.trans_btn.set_label("Cancel")
     self._red(self.trans_btn)
+    GLib.idle_add(self.add_more_button.set_visible, False)
     GLib.idle_add(self.status_lbl.set_label, "Transcription Started")
     threading.Thread(target=self._worker, args=(model_path, files, out_dir, core), daemon=True).start()
 
@@ -374,15 +375,9 @@ def _worker(self, model_path, files, out_dir, core):
         GLib.idle_add(self.reset_btn.set_visible, False)   # keep it hidden
         GLib.idle_add(self.add_more_button.set_visible, True)
     else:
-        GLib.idle_add(self.reset_btn.set_visible, True)    # show only on success
-        GLib.idle_add(self.add_more_button.set_visible, False)
+        GLib.idle_add(self.reset_btn.set_visible, True)    # show reset button
+        # GLib.idle_add(self.add_more_button.set_visible, True)
 
         self._gui_status("Done")
         GLib.idle_add(self.trans_btn.set_label, "Transcription Complete")
         GLib.idle_add(self.trans_btn.set_sensitive, False)
-        GLib.idle_add(self.add_more_button.set_label, "View Transcripts")
-        try:
-            self.add_more_button.disconnect_by_func(self.on_add_audio)
-        except TypeError:
-            pass
-        GLib.idle_add(self.add_more_button.connect, "clicked", lambda btn: self.stack.set_visible_child_name("transcripts"))

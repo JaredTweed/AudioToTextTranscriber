@@ -25,12 +25,6 @@ def create_view_switcher_ui(self):
     transcribe_box.set_margin_top(12)
     transcribe_box.set_margin_bottom(12)
 
-    # Transcribe Button
-    self.trans_btn = Gtk.Button(label="Transcribe")
-    self._green(self.trans_btn)
-    self.trans_btn.connect("clicked", self.on_transcribe)
-    transcribe_box.append(self.trans_btn)
-
     # Reset Button
     self.reset_btn = Gtk.Button()
     self.reset_btn.set_icon_name("view-refresh-symbolic")
@@ -42,6 +36,12 @@ def create_view_switcher_ui(self):
     self.add_more_button = Gtk.Button(label="Add Audio Files")
     self.add_more_button.connect("clicked", self.on_add_audio)
     transcribe_box.append(self.add_more_button)
+
+    # Transcribe Button
+    self.trans_btn = Gtk.Button(label="Transcribe")
+    self._green(self.trans_btn)
+    self.trans_btn.connect("clicked", self.on_transcribe)
+    transcribe_box.append(self.trans_btn)
 
     # Files Group
     self.files_group = Adw.PreferencesGroup()
@@ -117,6 +117,7 @@ def _on_view_switched(self, stack, param):
         self._update_transcripts_list(self.search_entry.get_text().strip())
 
 def _on_reset_clicked(self, button):
+    self._remove_all_files() 
     self._reset_btn()
     self.reset_btn.set_visible(False)
     self.add_more_button.set_visible(True)
@@ -461,9 +462,8 @@ def _yes_no(self, msg, callback):
 
 def _error(self, msg):
     parent = getattr(self, 'settings_dialog', None) or self.window
-    toast = Adw.Toast(title=msg, button_label="Close")
+    toast = Adw.Toast(title=msg)
     toast.set_timeout(5)
-    toast.connect("dismissed", lambda t: None)
     self.toast_overlay.add_toast(toast)
 
 def _on_theme_changed(self, combo_row, _):
