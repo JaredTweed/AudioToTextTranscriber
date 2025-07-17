@@ -70,100 +70,19 @@ def add_transcript_to_list(self, filename, file_path):
     return transcript_data
 
 def _show_transcript_content(self, transcript_data):
-    # ── 1. Always (re)load the file -----------------------------------------
+    # 1) refresh buffer from disk so user always sees latest text
     try:
-        with open(transcript_data["path"], "r", encoding="utf‑8") as f:
-            latest_text = f.read()
+        with open(transcript_data['path'], 'r', encoding='utf-8') as fh:
+            transcript_data.setdefault('buffer', Gtk.TextBuffer())
+            transcript_data['buffer'].set_text(fh.read())
     except Exception as e:
-        latest_text = f"Error loading transcript: {e}"
+        transcript_data.setdefault('buffer', Gtk.TextBuffer())
+        transcript_data['buffer'].set_text(f"Error loading transcript: {e}")
 
-    if transcript_data.get("buffer") is None:
-        transcript_data["buffer"] = Gtk.TextBuffer()
+    # 2) hand off to the shared renderer
+    self._show_text_buffer_window(transcript_data['filename'],
+                                  transcript_data['buffer'])
 
-    transcript_data["buffer"].set_text(latest_text)
-
-    # ── 2. Continue building the viewer window ------------------------------
-    content_window = Adw.Window()
-    content_window.set_title("Transcript Content")
-    content_window.set_default_size(400, 300)
-
-    # Create toolbar view with header bar
-    toolbar_view = Adw.ToolbarView()
-    
-    # Create header bar with close button
-    header_bar = Adw.HeaderBar()
-    header_bar.set_title_widget(Adw.WindowTitle(title=transcript_data['filename']))
-
-    
-    toolbar_view.add_top_bar(header_bar)
-
-    # Main content box with padding
-    main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-    main_box.set_margin_top(20)
-    main_box.set_margin_bottom(20)
-    main_box.set_margin_start(20)
-    main_box.set_margin_end(20)
-
-    content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-
-    if transcript_data['buffer'] and transcript_data['buffer'].get_char_count() > 0:
-        # Search entry below titlebar
-        search_entry = Gtk.SearchEntry()
-        search_entry.set_placeholder_text("Search in content...")
-        search_entry.set_hexpand(True)
-        
-        buffer = Gtk.TextBuffer()
-        # Check if highlight tag exists
-        self._ensure_highlight_tag(buffer)
-        highlight_tag = buffer.get_tag_table().lookup("highlight")
-
-        text = transcript_data['buffer'].get_text(
-            transcript_data['buffer'].get_start_iter(),
-            transcript_data['buffer'].get_end_iter(),
-            False
-        )
-        lines = text.splitlines()
-        search_text = self.search_entry.get_text().strip().lower()
-        text_with_numbers = ""
-        for i, line in enumerate(lines, 1):
-            text_with_numbers += f"{i:4d} | {line}\n"
-        buffer.set_text(text_with_numbers)
-
-        if search_text:
-            text_lower = text_with_numbers.lower()
-            start_pos = 0
-            while True:
-                start_pos = text_lower.find(search_text, start_pos)
-                if start_pos == -1:
-                    break
-                start_iter = buffer.get_iter_at_offset(start_pos)
-                end_iter = buffer.get_iter_at_offset(start_pos + len(search_text))
-                buffer.apply_tag(highlight_tag, start_iter, end_iter)
-                start_pos += len(search_text)
-
-        text_view = Gtk.TextView.new_with_buffer(buffer)
-        text_view.set_editable(False)
-        text_view.set_monospace(True)
-        text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-
-        scrolled_view = Gtk.ScrolledWindow()
-        scrolled_view.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_view.set_vexpand(True)
-        scrolled_view.set_hexpand(True)
-        scrolled_view.set_child(text_view)
-
-        search_entry.connect("search-changed", lambda entry: self._highlight_text(text_view, entry.get_text().strip()))
-
-        content_box.append(search_entry)
-        content_box.append(scrolled_view)
-    else:
-        status_msg = Gtk.Label(label="No transcription content available.")
-        content_box.append(status_msg)
-
-    main_box.append(content_box)
-    toolbar_view.set_content(main_box)
-    content_window.set_content(toolbar_view)
-    content_window.present()
 
 def _clear_listbox(self, listbox):
     try:

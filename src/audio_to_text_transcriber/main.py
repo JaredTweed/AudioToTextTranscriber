@@ -95,6 +95,7 @@ class WhisperApp(Adw.Application):
                 '_remove_single_file',
                 '_show_no_files_message',
                 'show_file_details',
+                '_show_text_buffer_window',
                 '_show_file_content',
                 '_ensure_highlight_tag',
                 '_refresh_highlight_tags',

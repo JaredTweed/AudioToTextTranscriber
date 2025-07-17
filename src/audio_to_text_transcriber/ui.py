@@ -237,87 +237,87 @@ def _show_no_files_message(self):
 def show_file_details(self, file_data):
     return
 
+def _show_text_buffer_window(
+        self,
+        title: str,
+        src_buffer: Gtk.TextBuffer,
+        initial_search: str | None = None
+    ) -> None:
+    """
+    Generic viewer for any Gtk.TextBuffer (transcripts or live‑logs).
+
+    • Adds 1‑based line numbers.
+    • Reuses self._ensure_highlight_tag / _highlight_text for styling.
+    • Respects the current contents of self.search_entry if no
+      explicit initial_search override is given.
+    """
+    # ── Build window & chrome ───────────────────────────────────────────────
+    win = Adw.Window()
+    win.set_title(title)
+    win.set_default_size(400, 300)
+
+    tv = Adw.ToolbarView()
+    hb = Adw.HeaderBar()
+    hb.set_title_widget(Adw.WindowTitle(title=title))
+    tv.add_top_bar(hb)
+
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    outer.set_margin_top(20)
+    outer.set_margin_bottom(20)
+    outer.set_margin_start(20)
+    outer.set_margin_end(20)
+    tv.set_content(outer)
+
+    # ── Prepare text (numbered + highlighted copy) ──────────────────────────
+    view_buf = Gtk.TextBuffer()
+    self._ensure_highlight_tag(view_buf)
+
+    text = src_buffer.get_text(src_buffer.get_start_iter(),
+                               src_buffer.get_end_iter(),
+                               False)
+    numbered = "\n".join(f"{i:4d} | {line}"
+                         for i, line in enumerate(text.splitlines(), 1))
+    view_buf.set_text(numbered)
+
+    # apply any pending highlight
+    query = initial_search if initial_search is not None \
+            else self.search_entry.get_text().strip()
+    if query:
+        self._highlight_text(Gtk.TextView.new_with_buffer(view_buf), query)
+
+    # ── Widgets ─────────────────────────────────────────────────────────────
+    search = Gtk.SearchEntry()
+    search.set_placeholder_text("Search in content…")
+    search.set_hexpand(True)
+
+    # local TextView
+    tvw = Gtk.TextView.new_with_buffer(view_buf)
+    tvw.set_editable(False)
+    tvw.set_monospace(True)
+    tvw.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+
+    sc = Gtk.ScrolledWindow()
+    sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    sc.set_hexpand(True); sc.set_vexpand(True)
+    sc.set_child(tvw)
+
+    search.connect("search-changed",
+                   lambda e: self._highlight_text(tvw, e.get_text().strip()))
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    box.append(search)
+    box.append(sc)
+    outer.append(box)
+
+    win.set_content(tv)
+    win.present()
+
 def _show_file_content(self, file_data):
-    content_window = Adw.Window()
-    content_window.set_title("File Content")
-    content_window.set_default_size(400, 300)
+    if not file_data['buffer'] or file_data['buffer'].get_char_count() == 0:
+        self._error("No transcription content available.")
+        return
+    self._show_text_buffer_window(file_data['filename'], file_data['buffer'])
 
-    # Create toolbar view with header bar
-    toolbar_view = Adw.ToolbarView()
-    
-    # Create header bar with close button
-    header_bar = Adw.HeaderBar()
-    header_bar.set_title_widget(Adw.WindowTitle(title=file_data['filename']))
-    
-    toolbar_view.add_top_bar(header_bar)
-
-    # Main content box with padding
-    main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-    main_box.set_margin_top(20)
-    main_box.set_margin_bottom(20)
-    main_box.set_margin_start(20)
-    main_box.set_margin_end(20)
-
-    content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-
-    if file_data['buffer'] and file_data['buffer'].get_char_count() > 0:
-        # Search entry below titlebar
-        search_entry = Gtk.SearchEntry()
-        search_entry.set_placeholder_text("Search in content...")
-        search_entry.set_hexpand(True)
-        
-        buffer = Gtk.TextBuffer()
-        # Check if highlight tag exists
-        self._ensure_highlight_tag(buffer)
-        highlight_tag = buffer.get_tag_table().lookup("highlight")
-
-        text = file_data['buffer'].get_text(
-            file_data['buffer'].get_start_iter(),
-            file_data['buffer'].get_end_iter(),
-            False
-        )
-        lines = text.splitlines()
-        search_text = self.search_entry.get_text().strip().lower()
-        text_with_numbers = ""
-        for i, line in enumerate(lines, 1):
-            text_with_numbers += f"{i:4d} | {line}\n"
-        buffer.set_text(text_with_numbers)
-
-        if search_text:
-            text_lower = text_with_numbers.lower()
-            start_pos = 0
-            while True:
-                start_pos = text_lower.find(search_text, start_pos)
-                if start_pos == -1:
-                    break
-                start_iter = buffer.get_iter_at_offset(start_pos)
-                end_iter = buffer.get_iter_at_offset(start_pos + len(search_text))
-                buffer.apply_tag(highlight_tag, start_iter, end_iter)
-                start_pos += len(search_text)
-
-        text_view = Gtk.TextView.new_with_buffer(buffer)
-        text_view.set_editable(False)
-        text_view.set_monospace(True)
-        text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-
-        scrolled_view = Gtk.ScrolledWindow()
-        scrolled_view.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_view.set_vexpand(True)
-        scrolled_view.set_hexpand(True)
-        scrolled_view.set_child(text_view)
-
-        search_entry.connect("search-changed", lambda entry: self._highlight_text(text_view, entry.get_text().strip()))
-
-        content_box.append(search_entry)
-        content_box.append(scrolled_view)
-    else:
-        status_msg = Gtk.Label(label="No transcription content available.")
-        content_box.append(status_msg)
-
-    main_box.append(content_box)
-    toolbar_view.set_content(main_box)
-    content_window.set_content(toolbar_view)
-    content_window.present()
 
 def _ensure_highlight_tag(self, buffer: Gtk.TextBuffer):
     self._highlight_buffers.add(buffer)
