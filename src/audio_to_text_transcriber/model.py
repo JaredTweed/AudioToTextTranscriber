@@ -130,7 +130,7 @@ def _on_delete_model(self, confirmed, target, core):
         if os.path.isfile(target):
             os.remove(target)
             name = self._display_name(core)
-            GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {name}")
+            # GLib.idle_add(self.status_lbl.set_label, f"Model deleted: {name}")
             GLib.idle_add(self._refresh_model_menu)
             GLib.idle_add(self._update_model_btn)
         else:
@@ -145,7 +145,7 @@ def _start_download(self, core):
     total_mb = MODEL_SIZE_MB.get(family, None)
     self.dl_info = {"core": core, "target": target, "total_mb": total_mb, "done_mb": 0}
     name = self._display_name(core)
-    self.status_lbl.set_label(f"Starting download for “{name}”...")
+    # self.status_lbl.set_label(f"Starting download for “{name}”...")
     self._update_model_btn()
     threading.Thread(target=self._download_model_thread, args=(core,), daemon=True).start()
     GLib.timeout_add(500, self._poll_download_progress)
@@ -175,8 +175,8 @@ def _download_model_thread(self, core):
                 GLib.idle_add(self._on_download_done, False)
                 return
             line = proc.stdout.readline().strip()
-            if line:
-                GLib.idle_add(self.status_lbl.set_label, line[:120])
+            # if line:
+            #     GLib.idle_add(self.status_lbl.set_label, line[:120])
         proc.stdout.close()
         proc.wait()
         GLib.idle_add(self._on_download_done, proc.returncode == 0)
@@ -192,7 +192,7 @@ def _on_download_done(self, success):
     core = self.dl_info["core"]
     name = self._display_name(core)
     if cancelled or self.cancel_flag:
-        self.status_lbl.set_label(f"Download cancelled for “{name}”.")
+        # self.status_lbl.set_label(f"Download cancelled for “{name}”.")
         if os.path.isfile(target):
             try:
                 os.remove(target)
@@ -205,8 +205,8 @@ def _on_download_done(self, success):
             if os.path.isfile(target):
                 os.remove(target)
             self._error(f"Failed to download model “{name}”.")
-        else:
-            self.status_lbl.set_label(f"Model “{name}” installed.")
+        # else:
+        #     self.status_lbl.set_label(f"Model “{name}” installed.")
     self.dl_info = None
     self.cancel_flag = False
     self._refresh_model_menu()

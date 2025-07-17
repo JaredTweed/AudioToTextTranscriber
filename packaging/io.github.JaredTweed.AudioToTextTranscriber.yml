@@ -14,6 +14,7 @@ finish-args:
   - --filesystem=xdg-run/gvfs
   - --filesystem=xdg-music
   - --filesystem=xdg-download
+  - --filesystem=home     
   - --socket=pulseaudio
   - --device=all
   
@@ -71,23 +72,35 @@ modules:
         packagetype: bdist_wheel
         
         
-  - name: whisper-and-py-src
+  - name: whisper-src
     buildsystem: cmake-ninja
     sources:
       - type: archive
-        url: https://github.com/JaredTweed/AudioToTextTranscriber-old/releases/download/v1.0.1/v1.0.1.zip
-      
-        sha256: 693d2d91c3081e4e402e12c3737e585fccf2eba527dd510bf5ae11548b82f9fc
-        strip-components: 0 
-
+        url: https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.7.6.zip
+        sha256: 8c579f4468fc23ddd64092ca9d8f3933d831a358ae9b7fcc09b43d9496a020c5
+        strip-components: 1
 
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
 
     build-commands:
-      - mkdir -p /app/bin 
-
+      # helper script for CLI fallback
       - install -Dm755 models/download-ggml-model.sh /app/bin/models/download-ggml-model.sh
+
+      # copy full source tree into /app/lib/pythonX.Y/site-packages/audio_to_text_transcriber/whisper.cpp
+      - |
+        python3 - <<'PY'
+        import sys, shutil, pathlib
+        # /app/lib/python3.12/site-packages
+        purelib = pathlib.Path("/app/lib") / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+        dest    = purelib / "audio_to_text_transcriber" / "whisper.cpp"
+        print(f"→ Installing whisper.cpp to {dest}")
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(".", dest)
+        (dest / "models").mkdir(exist_ok=True)
+        shutil.copy("models/download-ggml-model.sh", dest / "models" / "download-ggml-model.sh")
+        PY
+
 
   - name: pyyaml
     buildsystem: simple

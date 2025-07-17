@@ -40,7 +40,12 @@ class WhisperApp(Adw.Application):
         )
         self.ts_enabled = True
         sd = os.path.abspath(os.path.dirname(__file__))
+        
         self.repo_dir = os.path.join(sd, "whisper.cpp") if os.path.isdir(os.path.join(sd, "whisper.cpp")) else sd
+        print(f"Source directory: {sd}\n\nWhisper repo directory: {self.repo_dir}")
+        print(f"ls of source directory: {os.listdir(sd)}")
+        print(f"ls of source directory parent: {os.listdir(os.path.dirname(sd))}")
+        print(f"ls of source directory parent parent: {os.listdir(os.path.dirname(os.path.dirname(sd)))}")
         self.bin_path = shutil.which("whisper-cli") or os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
         self.download_script = os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
         data_dir = os.getenv(

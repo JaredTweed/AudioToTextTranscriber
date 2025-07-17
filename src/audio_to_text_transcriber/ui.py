@@ -570,10 +570,10 @@ def _build_ui(self):
     )
     model_box.append(self.model_value_label)
 
-    model_box.append(Gtk.Label(label=" ("))
+    # model_box.append(Gtk.Label(label=" ("))
     self.status_lbl = Gtk.Label(label="Idle")          # <- status now lives here
-    model_box.append(self.status_lbl)
-    model_box.append(Gtk.Label(label=")"))
+    # model_box.append(self.status_lbl)
+    # model_box.append(Gtk.Label(label=")"))
 
     main_box.append(model_box)
 
@@ -608,6 +608,11 @@ def _on_browse_out_response(self, dialog, result):
                 self.save_settings()
             if self.output_value_label:
                 self.output_value_label.set_label(_hp(self.output_directory))
+
+            # ── NEW: refresh Transcripts pane right away ────────────────
+            scan_text = self.search_entry.get_text().strip() if self.search_entry else ""
+            # this spawns the background scan thread and rebuilds rows
+            self._spawn_scan_thread(scan_text)
     except GLib.Error:
         pass
 
