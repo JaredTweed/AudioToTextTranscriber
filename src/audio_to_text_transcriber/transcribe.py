@@ -459,6 +459,7 @@ def _worker(self, model_path, files, out_dir, core):
                 dest_path = os.path.join(out_dir,
                                         os.path.splitext(filename)[0] + "_transcribed.txt")
                 buffer    = file_data['buffer']          # local alias – crucial!
+                file_data['transcript_path'] = dest_path 
 
                 def _save(buf=buffer, dest=dest_path):
                     if buf and buf.get_char_count() > 0:

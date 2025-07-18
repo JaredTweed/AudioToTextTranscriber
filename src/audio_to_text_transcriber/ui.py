@@ -208,7 +208,8 @@ def add_file_to_list(self, filename, file_path):
         'status': 'waiting',
         'buffer': output_buffer,
         'view': output_view,
-        'is_viewed': False
+        'is_viewed': False,
+        'transcript_path': None,
     }
     self.progress_items.append(file_data)
 
@@ -565,10 +566,37 @@ def _show_text_buffer_window(
     tv.show()
 
 def _show_file_content(self, file_data):
-    if not file_data['buffer'] or file_data['buffer'].get_char_count() == 0:
-        self._error("No transcription content available.")
-        return
-    self._show_text_buffer_window(file_data['filename'], file_data['buffer'])
+    buf = file_data.get('buffer')
+
+    if buf is None or buf.get_char_count() == 0:
+        # try to reload from the saved text file
+        dest = file_data.get('transcript_path')
+        if not dest:
+            # derive it from the original audio filename
+            out_dir = getattr(self, 'output_directory',
+                              os.path.expanduser("~/Downloads"))
+            base = os.path.splitext(os.path.basename(file_data['path']))[0] + "_transcribed.txt"
+            dest = os.path.join(out_dir, base)
+
+        if not os.path.isfile(dest):
+            self._error("No transcription content available.")
+            return
+
+        # rebuild a fresh buffer from disk
+        import gi
+        gi.require_version("GtkSource", "5")
+        from gi.repository import GtkSource
+        buf = GtkSource.Buffer()
+        self._ensure_highlight_tag(buf)
+        try:
+            with open(dest, "r", encoding="utf-8") as fh:
+                buf.set_text(fh.read())
+            file_data['buffer'] = buf      # cache for next time
+        except Exception as e:
+            self._error(f"Failed to load transcript: {e}")
+            return
+
+    self._show_text_buffer_window(file_data['filename'], buf)
 
 
 def _ensure_highlight_tag(self, buffer: Gtk.TextBuffer):
