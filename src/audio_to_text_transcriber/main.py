@@ -5,6 +5,7 @@ import subprocess
 import threading
 import yaml
 import shutil
+import weakref  
 from pathlib import Path
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -30,7 +31,8 @@ except ImportError as e:
 class WhisperApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id="io.github.JaredTweed.AudioToTextTranscriber")
-        self._highlight_buffers: set[Gtk.TextBuffer] = set()
+        # WeakSet lets Python release the entry as soon as the last TextView is gone
+        self._highlight_buffers: weakref.WeakSet = weakref.WeakSet()
         self.title = "Audio-To-Text Transcriber"
         self.settings_file = Path(GLib.get_user_data_dir()) / "AudioToTextTranscriber" / "Settings.yaml"
         
@@ -68,6 +70,7 @@ class WhisperApp(Adw.Application):
         self.transcript_items = []
         self._scan_handle = 0          # source-id of the debounce timer
         self._scan_thread = None       # background Thread object
+        self._scan_cancel = threading.Event() 
         self.transcript_paths  = set()      #  <-- NEW
         self.no_transcripts_row = None      #  <-- NEW
         self.files_group = None

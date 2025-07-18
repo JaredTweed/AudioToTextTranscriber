@@ -476,6 +476,9 @@ def _worker(self, model_path, files, out_dir, core):
 
                 GLib.idle_add(_save)
                 GLib.idle_add(self.update_file_status, file_data, 'completed', "Completed successfully")
+                # Allow GC to reclaim memory – the text now lives on disk
+                file_data['buffer'] = None
+                file_data['view']   = None    
 
     if self.cancel_flag:
         self._gui_status("Cancelled")

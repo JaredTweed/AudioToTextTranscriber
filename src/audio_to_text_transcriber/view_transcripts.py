@@ -1,6 +1,8 @@
+
+
 # view_transcripts.py
 import gi
-import os
+import os, mmap
 import re
 import subprocess
 import threading
@@ -9,7 +11,8 @@ import shutil
 from pathlib import Path
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject
+gi.require_version("GtkSource", "5")
+from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject, GtkSource
 
 from .helpers import human_path as _hp
 
@@ -38,27 +41,12 @@ def add_transcript_to_list(self, filename, file_path):
     open_btn.connect("clicked", lambda btn: self._open_transcript_file(file_path))
     transcript_row.add_suffix(open_btn)
 
-    output_buffer = Gtk.TextBuffer()
-    self._ensure_highlight_tag(output_buffer) 
-    output_view = Gtk.TextView.new_with_buffer(output_buffer)
-    output_view.set_editable(False)
-    output_view.set_monospace(True)
-    output_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-            output_buffer.set_text(content)
-    except Exception as e:
-        output_buffer.set_text(f"Error loading transcript: {e}")
-
     transcript_data = {
         'row': transcript_row,
         'open_btn': open_btn,
         'filename': filename,
         'path': file_path,
-        'buffer': output_buffer,
-        'view': output_view,
+        'view':   None,
         'is_viewed': False
     }
     self.transcript_items.append(transcript_data)
@@ -70,18 +58,17 @@ def add_transcript_to_list(self, filename, file_path):
     return transcript_data
 
 def _show_transcript_content(self, transcript_data):
-    # 1) refresh buffer from disk so user always sees latest text
+    # Always build a *new* buffer so nothing lingers in memory
+    buf = GtkSource.Buffer()
+    self._ensure_highlight_tag(buf)
     try:
         with open(transcript_data['path'], 'r', encoding='utf-8') as fh:
-            transcript_data.setdefault('buffer', Gtk.TextBuffer())
-            transcript_data['buffer'].set_text(fh.read())
+            buf.set_text(fh.read())
     except Exception as e:
-        transcript_data.setdefault('buffer', Gtk.TextBuffer())
-        transcript_data['buffer'].set_text(f"Error loading transcript: {e}")
+        buf.set_text(f"Error loading transcript: {e}")
 
-    # 2) hand off to the shared renderer
-    self._show_text_buffer_window(transcript_data['filename'],
-                                  transcript_data['buffer'])
+    # Show it (garbage‑collects automatically when the overlay closes)
+    self._show_text_buffer_window(transcript_data['filename'], buf)
 
 
 def _clear_listbox(self, listbox):
@@ -163,44 +150,84 @@ def on_search_changed(self, entry: Gtk.SearchEntry):
     text = entry.get_text().strip()
     if self._scan_handle:
         GLib.source_remove(self._scan_handle)
-        self._scan_handle = 0          # <-- important
-    self._scan_handle = GLib.timeout_add(
-        300,
-        lambda: (self._spawn_scan_thread(text), False)
-    )
+        self._scan_handle = 0          
 
-def _spawn_scan_thread(self, search_text: str):
-    # if a previous scan is still running just let it finish
+    def _run():
+        self._scan_handle = 0          # mark as consumed *first*
+        self._spawn_scan_thread(text)  # then kick off the scan
+        return False                   # one‑shot
+
+    self._scan_handle = GLib.timeout_add(300, _run)
+
+def _spawn_scan_thread(self, search_text):
     if self._scan_thread and self._scan_thread.is_alive():
-        return
+        self._scan_cancel.set()         # tell old one to stop
+    self._scan_cancel = threading.Event()
     self._scan_thread = threading.Thread(
         target=self._update_transcripts_list,
-        args=(search_text,),
+        args=(search_text, self._scan_cancel),
         daemon=True,
     )
     self._scan_thread.start()
 
-def _update_transcripts_list(self, search_text: str):
-    matches = []
+def _update_transcripts_list(
+        self,
+        search_text: str,
+        cancel_evt: threading.Event      # ← new
+    ):
+    """
+    Build *matches* quickly and memory‑efficiently.
+
+    • No recursion – all “*_transcribed.txt” files live directly in the
+      output directory.
+    • If search_text is empty → keep every transcript.
+    • Otherwise:
+        1.  Keep the file immediately if its **name** contains the term.
+        2.  Fallback: stream‑scan the file in 8‑KB chunks (no full read).
+    """
     out_dir = self.output_directory or os.path.expanduser("~/Downloads")
+    matches: list[str] = []
+    hay = search_text.lower() if search_text else ""
+    hay_bytes  = hay.encode()
 
     try:
-        for root, _, files in os.walk(out_dir):
-            for fname in files:
-                if not fname.endswith("_transcribed.txt"):
-                    continue
-                full = os.path.join(root, fname)
-                if search_text and search_text.lower() not in fname.lower():
-                    with open(full, "r", encoding="utf-8", errors="replace") as f:
-                        if search_text.lower() not in f.read().lower():
-                            continue
-                matches.append(full)
+        for entry in os.scandir(out_dir):
+            if cancel_evt.is_set(): return   
+            if not entry.name.endswith("_transcribed.txt"):
+                continue
+
+            # ① empty search → accept all
+            if not hay:
+                matches.append(entry.path)
+                continue
+
+            # ② filename hit → accept
+            if hay in entry.name.lower():
+                matches.append(entry.path)
+                continue
+
+            # ③ slow path: stream‑scan file contents
+            try:
+                with open(entry.path, "rb", 0) as fh, \
+                     mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                    # Compile once per scan and re‑use for every file
+                    if '_ci_pat' not in locals():
+                        import re
+                        _ci_pat = re.compile(re.escape(hay_bytes), re.IGNORECASE)
+
+                    if _ci_pat.search(mm):           # ← case‑insensitive
+                        matches.append(entry.path)
+            except OSError:
+                # unreadable file → silently skip
+                pass
+
     except Exception as e:
         GLib.idle_add(self._error, f"Failed to scan transcripts: {e}")
         return
 
-    # push the UI changes back onto the main thread
+    # Push UI update onto the main loop
     GLib.idle_add(self._rebuild_transcript_rows, matches)
+
 
 def _rebuild_transcript_rows(self, matches: list[str]):
     # 1. Remove rows we previously inserted
