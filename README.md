@@ -23,7 +23,7 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 
 * allow draging files into desired order.
 * have the smallest model installed by default
-* Access whisper.cpp via the releases .zip in the whisper.cpp repo (or this repo) so that we can delete the old repo.
+* Prevent freezing when opening transcriptions.
 
 ### Intended to complete before flathub release
 
