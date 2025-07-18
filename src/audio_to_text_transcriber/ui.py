@@ -122,7 +122,10 @@ def create_view_switcher_ui(self):
 
 def _on_view_switched(self, stack, param):
     if stack.get_visible_child_name() == "transcripts":
+        # rebuild the list first …
         self._update_transcripts_list(self.search_entry.get_text().strip())
+        # … then move the keyboard focus into the top search box
+        GLib.idle_add(self.search_entry.grab_focus)
 
 def _on_reset_clicked(self, button):
     self._remove_all_files() 
@@ -504,6 +507,9 @@ def _show_text_buffer_window(
     search = Gtk.SearchEntry()
     search.set_placeholder_text("Search…")
     search.set_hexpand(True)
+
+    # give it focus as soon as the overlay is on screen
+    GLib.idle_add(search.grab_focus)
 
     counter_lbl = Gtk.Label(label="0 of 0")
     dn_btn      = Gtk.Button(icon_name="go-down-symbolic"); dn_btn.add_css_class("flat")
