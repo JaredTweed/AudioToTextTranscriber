@@ -11,6 +11,8 @@
 
 Run `./build.sh` from the root directory.
 
+If you want to build it quicker for less accurate testing (e.g.,the transcription won't work), run `python3 -m src.audio_to_text_transcriber.main` from the root directory.
+
 ## Where to get audio to test this
 
 https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English

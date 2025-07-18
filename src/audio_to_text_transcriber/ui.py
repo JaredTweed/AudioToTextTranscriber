@@ -237,6 +237,83 @@ def _show_no_files_message(self):
 def show_file_details(self, file_data):
     return
 
+# # OLD VERSION
+# def _show_text_buffer_window(
+#         self,
+#         title: str,
+#         src_buffer: Gtk.TextBuffer,
+#         initial_search: str | None = None
+#     ) -> None:
+#     """
+#     Generic viewer for any Gtk.TextBuffer (transcripts or live‑logs).
+
+#     • Adds 1‑based line numbers.
+#     • Reuses self._ensure_highlight_tag / _highlight_text for styling.
+#     • Respects the current contents of self.search_entry if no
+#       explicit initial_search override is given.
+#     """
+#     # ── Build window & chrome ───────────────────────────────────────────────
+#     win = Adw.Window()
+#     win.set_title(title)
+#     win.set_default_size(400, 300)
+
+#     tv = Adw.ToolbarView()
+#     hb = Adw.HeaderBar()
+#     hb.set_title_widget(Adw.WindowTitle(title=title))
+#     tv.add_top_bar(hb)
+
+#     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+#     outer.set_margin_top(0)
+#     outer.set_margin_bottom(20)
+#     outer.set_margin_start(20)
+#     outer.set_margin_end(20)
+#     tv.set_content(outer)
+
+#     # ── Prepare text (numbered + highlighted copy) ──────────────────────────
+#     view_buf = Gtk.TextBuffer()
+#     self._ensure_highlight_tag(view_buf)
+
+#     text = src_buffer.get_text(src_buffer.get_start_iter(),
+#                                src_buffer.get_end_iter(),
+#                                False)
+#     numbered = "\n".join(f"{i:4d} | {line}"
+#                          for i, line in enumerate(text.splitlines(), 1))
+#     view_buf.set_text(numbered)
+
+#     # apply any pending highlight
+#     query = initial_search if initial_search is not None \
+#             else self.search_entry.get_text().strip()
+#     if query:
+#         self._highlight_text(Gtk.TextView.new_with_buffer(view_buf), query)
+
+#     # ── Widgets ─────────────────────────────────────────────────────────────
+#     search = Gtk.SearchEntry()
+#     search.set_placeholder_text("Search in content…")
+#     search.set_hexpand(True)
+
+#     # local TextView
+#     tvw = Gtk.TextView.new_with_buffer(view_buf)
+#     tvw.set_editable(False)
+#     tvw.set_monospace(True)
+#     tvw.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+
+#     sc = Gtk.ScrolledWindow()
+#     sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+#     sc.set_hexpand(True); sc.set_vexpand(True)
+#     sc.set_child(tvw)
+
+#     search.connect("search-changed",
+#                    lambda e: self._highlight_text(tvw, e.get_text().strip()))
+
+#     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+#     box.append(search)
+#     box.append(sc)
+#     outer.append(box)
+
+#     win.set_content(tv)
+#     win.present()
+
+# VERSION HIGHLY CUSTOMIZED
 def _show_text_buffer_window(
         self,
         title: str,
@@ -244,73 +321,335 @@ def _show_text_buffer_window(
         initial_search: str | None = None
     ) -> None:
     """
-    Generic viewer for any Gtk.TextBuffer (transcripts or live‑logs).
-
-    • Adds 1‑based line numbers.
-    • Reuses self._ensure_highlight_tag / _highlight_text for styling.
-    • Respects the current contents of self.search_entry if no
-      explicit initial_search override is given.
+    Show a read-only, searchable view of `src_buffer` in an overlay
+    stacked above the main UI.  Requires that `self.content_overlay`
+    (a Gtk.Overlay) was created once when the window was built.
     """
-    # ── Build window & chrome ───────────────────────────────────────────────
-    win = Adw.Window()
-    win.set_title(title)
-    win.set_default_size(400, 300)
 
+    # print("\n===== _show_text_buffer_window BEGIN =====")
+
+    # ───────────────────────────────────────────────────────────
+    # 1.  The root overlay that *does* have add_overlay()
+    # ───────────────────────────────────────────────────────────
+    overlay_root: Gtk.Overlay = self.content_overlay
+
+    # ── 2½. Backdrop that blocks interaction & dims UI ───────────
+    if getattr(self, "_backdrop_overlay", None):
+        overlay_root.remove_overlay(self._backdrop_overlay)
+
+    backdrop = Gtk.Box()               # just an empty, full‑size widget
+    backdrop.set_hexpand(True)
+    backdrop.set_vexpand(True)
+    backdrop.set_name("overlay_backdrop")
+
+    # CSS: 40 % black, no border
+    css = b"""
+    #overlay_backdrop {
+        background-color: rgba(0,0,0,0.4);
+    }
+    """
+    prov = Gtk.CssProvider(); prov.load_from_data(css)
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(), prov,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+
+    overlay_root.add_overlay(backdrop)         # ← add *before* the viewer
+    self._backdrop_overlay = backdrop
+
+    # ───────────────────────────────────────────────────────────
+    # 2.  Remove any previous viewer overlay
+    # ───────────────────────────────────────────────────────────
+    if getattr(self, "_textbuf_overlay", None):
+        print("[DBG] Removing previous viewer overlay")
+        overlay_root.remove_overlay(self._textbuf_overlay)
+        self._textbuf_overlay = None
+
+    # ───────────────────────────────────────────────────────────
+    # 3.  Build a fresh overlay box
+    # ───────────────────────────────────────────────────────────
+    viewer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    viewer.set_hexpand(True)
+    viewer.set_vexpand(True)
+    viewer.set_margin_top(50)
+    viewer.add_css_class("card")
+    viewer.add_css_class("boxed-list")
+
+    viewer.set_name("overlay_viewer")           # unique CSS id
+
+    css = """
+    #overlay_viewer {
+        background-image: none;                 /* no gradients */
+        background-color: @window_bg_color;     /* solid, theme‑aware */
+    }
+    """
+    prov = Gtk.CssProvider(); prov.load_from_data(css)
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(),
+        prov,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+
+    # Keep reference and attach
+    self._textbuf_overlay = viewer
+    overlay_root.add_overlay(viewer)
+
+    # ───────────────────────── Header bar with close button ───
     tv = Adw.ToolbarView()
     hb = Adw.HeaderBar()
+    hb.set_show_end_title_buttons(False)
     hb.set_title_widget(Adw.WindowTitle(title=title))
+
+    close_btn = Gtk.Button(icon_name="window-close-symbolic")
+    close_btn.add_css_class("flat")
+    # close_btn.set_tooltip_text("Close")
+    def _dismiss_viewer():
+        overlay_root.remove_overlay(viewer)
+        overlay_root.remove_overlay(self._backdrop_overlay)
+        self._textbuf_overlay = None
+        self._backdrop_overlay = None
+
+    close_btn.connect("clicked", lambda *_: _dismiss_viewer())
+    # Optional: clicking the dark backdrop also closes it
+    click = Gtk.GestureClick()
+    click.connect("pressed", lambda *_: _dismiss_viewer())
+    backdrop.add_controller(click)
+
+    hb.pack_end(close_btn)
     tv.add_top_bar(hb)
 
-    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-    outer.set_margin_top(20)
+    # ───────────────────────── Main content area ───────────────
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    outer.set_margin_top(0)
     outer.set_margin_bottom(20)
     outer.set_margin_start(20)
     outer.set_margin_end(20)
     tv.set_content(outer)
 
-    # ── Prepare text (numbered + highlighted copy) ──────────────────────────
-    view_buf = Gtk.TextBuffer()
-    self._ensure_highlight_tag(view_buf)
+    # Prepare numbered buffer
+    numbered_buf = Gtk.TextBuffer()
+    self._ensure_highlight_tag(numbered_buf)
+    raw_text = src_buffer.get_text(
+        src_buffer.get_start_iter(), src_buffer.get_end_iter(), False
+    )
+    numbered_buf.set_text(
+        "\n".join(f"{i:4d} | {line}"
+                  for i, line in enumerate(raw_text.splitlines(), 1))
+    )
 
-    text = src_buffer.get_text(src_buffer.get_start_iter(),
-                               src_buffer.get_end_iter(),
-                               False)
-    numbered = "\n".join(f"{i:4d} | {line}"
-                         for i, line in enumerate(text.splitlines(), 1))
-    view_buf.set_text(numbered)
-
-    # apply any pending highlight
-    query = initial_search if initial_search is not None \
-            else self.search_entry.get_text().strip()
-    if query:
-        self._highlight_text(Gtk.TextView.new_with_buffer(view_buf), query)
-
-    # ── Widgets ─────────────────────────────────────────────────────────────
-    search = Gtk.SearchEntry()
-    search.set_placeholder_text("Search in content…")
-    search.set_hexpand(True)
-
-    # local TextView
-    tvw = Gtk.TextView.new_with_buffer(view_buf)
+    tvw = Gtk.TextView.new_with_buffer(numbered_buf)
     tvw.set_editable(False)
     tvw.set_monospace(True)
     tvw.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
 
-    sc = Gtk.ScrolledWindow()
-    sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-    sc.set_hexpand(True); sc.set_vexpand(True)
-    sc.set_child(tvw)
+    # initial highlight
+    # ── after tvw is created ───────────────────────────────────────
+    matches: list[tuple[Gtk.TextIter, Gtk.TextIter]] = []
+    current = -1                        # -1 = “no match yet”
 
+    def _update_counter():
+        counter_lbl.set_label(
+            f"{current+1 if matches else 0} of {len(matches)}"
+        )
+        # enable / disable nav buttons
+        up_btn.set_sensitive(len(matches) > 1)
+        dn_btn.set_sensitive(len(matches) > 1)
+
+    def _scroll_to(idx: int):
+        """Scroll TextView so match *idx* is visible."""
+        if not matches:
+            return
+        start, _end = matches[idx]
+        tvw.scroll_to_iter(start, 0.10,  False, 0.0, 0.0)  # within‑margin 10 %
+
+    def _highlight_and_collect(query: str):
+        """Re‑highlight *all* matches and remember their Iters."""
+        nonlocal matches, current
+        matches = []
+
+        # reuse existing tag helper
+        self._highlight_text(tvw, query)
+
+        if not query:
+            current = -1
+            _update_counter()
+            return
+
+        buf = tvw.get_buffer()
+        it = buf.get_start_iter()
+        flags = Gtk.TextSearchFlags.CASE_INSENSITIVE
+        while True:
+            res = it.forward_search(query, flags, None)
+            if not res:
+                break
+            m_start, m_end = res
+            matches.append((m_start, m_end))
+            it = m_end
+
+        current = 0 if matches else -1
+        _update_counter()
+        if current != -1:
+            _scroll_to(current)
+
+    def _jump(delta: int):
+        """Move ±1 through matches and scroll."""
+        nonlocal current
+        if not matches:
+            return
+        current = (current + delta) % len(matches)
+        _update_counter()
+        _scroll_to(current)
+
+    # ── search bar (entry  +  right‑side controls) ────────────────
+    search = Gtk.SearchEntry()
+    search.set_placeholder_text("Search…")
+    search.set_hexpand(True)
+
+    counter_lbl = Gtk.Label(label="0 of 0")
+    dn_btn      = Gtk.Button(icon_name="go-down-symbolic"); dn_btn.add_css_class("flat")
+    up_btn      = Gtk.Button(icon_name="go-up-symbolic");   up_btn.add_css_class("flat")
+    clear_btn   = Gtk.Button(icon_name="edit-clear-symbolic"); clear_btn.add_css_class("flat")
+
+    dn_btn.connect("clicked", lambda *_: _jump(+1))
+    up_btn.connect("clicked", lambda *_: _jump(-1))
+    # clear_btn.connect("clicked", lambda *_: search.set_text(""))
+
+    # react to typing *and* Enter
     search.connect("search-changed",
-                   lambda e: self._highlight_text(tvw, e.get_text().strip()))
+                  lambda e: _highlight_and_collect(e.get_text().strip()))
+    search.connect("activate", lambda *_: _jump(+1))
 
+    controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+    for w in (counter_lbl, up_btn, dn_btn):
+        controls.append(w)
+
+    search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    search_box.append(search)
+    search_box.append(controls)
+
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_hexpand(True)
+    scroller.set_vexpand(True)
+    scroller.set_child(tvw)
+
+    # replace previous “box.append(search)” line with:
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-    box.append(search)
-    box.append(sc)
+    box.append(search_box)
+    box.append(scroller)
     outer.append(box)
 
-    win.set_content(tv)
-    win.present()
+    tv.set_hexpand(True)
+    tv.set_vexpand(True)
+    viewer.append(tv)
+
+    # ───────────────────────── Final show ──────────────────────
+    viewer.show()
+    tv.show()
+
+# # VERSION LIKE SETTINGS
+# def _show_text_buffer_window(
+#         self,
+#         title: str,
+#         src_buffer: Gtk.TextBuffer,
+#         initial_search: str | None = None
+#     ) -> None:
+#     """
+#     Show a read‑only, searchable copy of `src_buffer` in a modal‑style
+#     Adw.Dialog.  The dialog itself darkens the main window and blocks
+#     interaction until it is closed.
+#     """
+
+#     # ── close any previous dialog ────────────────────────────────
+#     if getattr(self, "_textbuf_dialog", None):
+#         self._textbuf_dialog.close()
+#         self._textbuf_dialog = None
+
+#     # ── shell window (Adw.Dialog) ────────────────────────────────
+#     dlg = Adw.Dialog()                       # no extra kwargs needed
+#     dlg.set_title(title)                     # allowed
+#     dlg.set_size_request(640, 480)           # allowed (fallback for set_default_size)
+#     dlg.set_can_close(True)                  # make Esc / ⌘‑W work
+#     dlg.set_margin_bottom(0)
+
+#     # keep a reference so we can close it next time
+#     self._textbuf_dialog = dlg
+
+#     # ── header bar with a Close button ───────────────────────────
+#     tv = Adw.ToolbarView()
+#     hb = Adw.HeaderBar()
+#     hb.set_show_end_title_buttons(False)
+#     hb.set_title_widget(Adw.WindowTitle(title=title))
+
+#     close_btn = Gtk.Button(icon_name="window-close-symbolic")
+#     close_btn.add_css_class("flat")
+#     close_btn.set_tooltip_text("Close")
+#     close_btn.connect("clicked", lambda *_: dlg.close())  # allowed
+#     hb.pack_end(close_btn)
+#     tv.add_top_bar(hb)                                       
+
+#     # ── main scrolling text area (unchanged) ─────────────────────
+#     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+#     outer.set_margin_top(20)
+#     outer.set_margin_bottom(20)
+#     outer.set_margin_start(20)
+#     outer.set_margin_end(20)
+#     tv.set_content(outer)
+
+#     # make a numbered, read‑only copy of the buffer
+#     numbered_buf = Gtk.TextBuffer()
+#     self._ensure_highlight_tag(numbered_buf)
+#     raw_text = src_buffer.get_text(
+#         src_buffer.get_start_iter(), src_buffer.get_end_iter(), False
+#     )
+#     numbered_buf.set_text(
+#         "\n".join(f"{i:4d} | {line}"
+#                   for i, line in enumerate(raw_text.splitlines(), 1))
+#     )
+
+#     tvw = Gtk.TextView.new_with_buffer(numbered_buf)
+#     tvw.set_editable(False)
+#     tvw.set_monospace(True)
+#     tvw.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+
+#     # initial highlight
+#     query = (initial_search or self.search_entry.get_text().strip())
+#     if query:
+#         self._highlight_text(tvw, query)
+
+#     # search entry
+#     search = Gtk.SearchEntry()
+#     search.set_placeholder_text("Search in content…")
+#     search.set_hexpand(True)
+#     search.connect(
+#         "search-changed",
+#         lambda e: self._highlight_text(tvw, e.get_text().strip())
+#     )
+
+#     # scroller
+#     scroller = Gtk.ScrolledWindow()
+#     scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+#     scroller.set_hexpand(True)
+#     scroller.set_vexpand(True)
+#     scroller.set_child(tvw)
+
+#     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+#     box.append(search)
+#     box.append(scroller)
+#     outer.append(box)
+
+#     # ── boxed “card” look (keeps same styling you already use) ───
+#     viewer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+#     viewer.add_css_class("boxed-list")       # border & padding
+#     viewer.append(tv)
+
+#     dlg.set_child(viewer)                    # allowed
+
+#     # ── show it – parent = main window so backdrop appears ──────
+#     dlg.present(self.window)                 # identical to AlertDialog usage
+
+
+
 
 def _show_file_content(self, file_data):
     if not file_data['buffer'] or file_data['buffer'].get_char_count() == 0:
@@ -497,7 +836,18 @@ def _build_ui(self):
     main_box.set_margin_end(8)
     main_box.set_margin_top(8)
     main_box.set_margin_bottom(8)
-    self.toast_overlay.set_child(main_box)
+    # ─────────────────────────────────────────────────────────────
+    # NEW: Wrap main_box in Gtk.Overlay and keep it for overlays
+    self.content_overlay = Gtk.Overlay()
+    self.content_overlay.set_child(main_box)
+    self.content_overlay.set_hexpand(True)
+    self.content_overlay.set_vexpand(True)
+    # ─────────────────────────────────────────────────────────────
+
+    # Place the overlay inside the toast overlay
+    self.toast_overlay.set_child(self.content_overlay)
+
+    # Attach the toast overlay to the window
     self.window.set_content(self.toast_overlay)
 
     css_provider = Gtk.CssProvider()

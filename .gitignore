@@ -10,3 +10,4 @@ AudioSamples/
 whisper-cli
 models/
 src/flatpak/
+__pycache__/
