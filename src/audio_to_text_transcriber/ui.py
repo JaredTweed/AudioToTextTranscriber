@@ -340,14 +340,20 @@ def _show_text_buffer_window(
     close_btn.add_css_class("flat")
     def _dismiss_viewer():
         nonlocal debounce_id
-        if debounce_id is not None:     # stop any pending timeout
+        if debounce_id is not None:
             GLib.source_remove(debounce_id)
             debounce_id = None
-        overlay_root.remove_overlay(viewer)
-        viewer.unparent()      # <- forces destruction now, not later
-        overlay_root.remove_overlay(self._backdrop_overlay)
-        self._textbuf_overlay = None
-        self._backdrop_overlay = None
+
+        # 1) viewer (text overlay)
+        if self._textbuf_overlay and self._textbuf_overlay.get_parent():
+            overlay_root.remove_overlay(self._textbuf_overlay)
+            self._textbuf_overlay = None
+
+        # 2) dark backdrop
+        if self._backdrop_overlay and self._backdrop_overlay.get_parent():
+            overlay_root.remove_overlay(self._backdrop_overlay)
+            self._backdrop_overlay = None
+
 
     close_btn.connect("clicked", lambda *_: _dismiss_viewer())
     # Optional: clicking the dark backdrop also closes it
