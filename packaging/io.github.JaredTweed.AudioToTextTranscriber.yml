@@ -84,18 +84,9 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
 
     build-commands:
-      - install -Dm755 models/download-ggml-model.sh /app/bin/models/download-ggml-model.sh
+      - install -d  /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp
+      - cp -a . /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp
 
-      # copy full source tree into site‑packages
-      - |
-        purelib="$(python3 -c 'import sysconfig,sys;print(sysconfig.get_paths()["purelib"])')"
-        dest="${purelib}/audio_to_text_transcriber/whisper.cpp"
-        echo "→ Installing whisper.cpp to ${dest}"
-        rm -rf "${dest}"
-        mkdir -p "${dest}"
-        cp -a . "${dest}"
-        mkdir -p "${dest}/models"
-        cp models/download-ggml-model.sh "${dest}/models/"
 
   - name: pyyaml
     buildsystem: simple
