@@ -67,8 +67,17 @@ def _show_transcript_content(self, transcript_data):
     except Exception as e:
         buf.set_text(f"Error loading transcript: {e}")
 
-    # Show it (garbage‑collects automatically when the overlay closes)
-    self._show_text_buffer_window(transcript_data['filename'], buf)
+    # # Show it (garbage‑collects automatically when the overlay closes)
+    # self._show_text_buffer_window(transcript_data['filename'], buf)
+
+    # Grab the text from the top‑level search bar so the viewer opens
+    # with the same term already entered (and highlighted).
+    query = self.search_entry.get_text().strip()
+    self._show_text_buffer_window(
+        transcript_data['filename'],
+        buf,
+        query or None,        # None → no pre‑fill when the box is empty
+    )
 
 
 def _clear_listbox(self, listbox):

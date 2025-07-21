@@ -473,6 +473,7 @@ def _show_text_buffer_window(self, title: str,
 
     if initial_search:
         search.set_text(initial_search)
+        search.set_position(-1)
 
     nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
     nav_box.append(prev_btn)
