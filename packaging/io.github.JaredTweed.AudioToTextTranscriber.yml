@@ -84,23 +84,18 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
 
     build-commands:
-      # helper script for CLI fallback
       - install -Dm755 models/download-ggml-model.sh /app/bin/models/download-ggml-model.sh
 
-      # copy full source tree into /app/lib/pythonX.Y/site-packages/audio_to_text_transcriber/whisper.cpp
+      # copy full source tree into site‑packages
       - |
-        python3 - <<'PY'
-        import sys, shutil, pathlib
-        # /app/lib/python3.12/site-packages
-        purelib = pathlib.Path("/app/lib") / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
-        dest    = purelib / "audio_to_text_transcriber" / "whisper.cpp"
-        print(f"→ Installing whisper.cpp to {dest}")
-        shutil.rmtree(dest, ignore_errors=True)
-        shutil.copytree(".", dest)
-        (dest / "models").mkdir(exist_ok=True)
-        shutil.copy("models/download-ggml-model.sh", dest / "models" / "download-ggml-model.sh")
-        PY
-
+        purelib="$(python3 -c 'import sysconfig,sys;print(sysconfig.get_paths()["purelib"])')"
+        dest="${purelib}/audio_to_text_transcriber/whisper.cpp"
+        echo "→ Installing whisper.cpp to ${dest}"
+        rm -rf "${dest}"
+        mkdir -p "${dest}"
+        cp -a . "${dest}"
+        mkdir -p "${dest}/models"
+        cp models/download-ggml-model.sh "${dest}/models/"
 
   - name: pyyaml
     buildsystem: simple
@@ -110,12 +105,14 @@ modules:
       - type: file
         url: https://files.pythonhosted.org/packages/b9/2b/614b4752f2e127db5cc206abc23a8c19678e92b23c3db30fc86ab731d3bd/PyYAML-6.0.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
         sha256: 80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476
-        only-arches:
-          - x86_64
-        x-checker-data:
-          type: pypi
-          name: PyYAML
-          packagetype: bdist_wheel
+        only-arches: [x86_64]
+        x-checker-data: {type: pypi, name: PyYAML, packagetype: bdist_wheel}
+
+      - type: file
+        url: https://files.pythonhosted.org/packages/??/??/PyYAML-6.0.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+        sha256: 1f71ea527786de97d1a0cc0eacd1defc0985dcf6b3f17bb77dcfc8c34bec4dc5 :contentReference[oaicite:0]{index=0}
+        only-arches: [aarch64]
+        x-checker-data: {type: pypi, name: PyYAML, packagetype: bdist_wheel}
 
   - name: portaudio
     buildsystem: autotools
@@ -136,12 +133,14 @@ modules:
       - type: file
         url: https://files.pythonhosted.org/packages/6e/45/c51cb248e679a6c6ab14b7a8e3ead3f4a3fe7425fc7a6f98b3f147bec532/numpy-2.3.1-cp312-cp312-manylinux_2_28_x86_64.whl
         sha256: e7cbf5a5eafd8d230a3ce356d892512185230e4781a361229bd902ff403bc660
-        only-arches:
-          - x86_64
-        x-checker-data:
-          type: pypi
-          name: numpy
-          packagetype: bdist_wheel
+        only-arches: [x86_64]
+        x-checker-data: {type: pypi, name: numpy, packagetype: bdist_wheel}
+
+      - type: file
+        url: https://files.pythonhosted.org/packages/??/??/numpy-2.3.1-cp312-cp312-manylinux_2_28_aarch64.whl
+        sha256: 8e333040d069eba1652fb08962ec5b76af7f2c7bce1df7e1418c8055cf776f25 :contentReference[oaicite:1]{index=1}
+        only-arches: [aarch64]
+        x-checker-data: {type: pypi, name: numpy, packagetype: bdist_wheel}
 
   - name: audio-to-text-transcriber
     buildsystem: simple
