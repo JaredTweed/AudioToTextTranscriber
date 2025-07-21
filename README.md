@@ -27,5 +27,3 @@ https://commons.wikimedia.org/wiki/Category:Audio_files_of_speeches_in_English
 ### Intended to complete before flathub release
 
 * update flatpak xml so that it show the newest images of the app.
-* Prevent freezing when opening transcriptions.
-* Prevent crashing when rapidly opening and closing lots of transcriptions.
