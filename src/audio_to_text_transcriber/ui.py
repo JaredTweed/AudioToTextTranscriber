@@ -15,8 +15,8 @@ from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject, GtkSource
 
 from .helpers import human_path as _hp
 
-import time
-_t0 = lambda: f"{time.perf_counter():.6f}"
+# import time
+# _t0 = lambda: f"{time.perf_counter():.6f}"
 
 _overlay_css_prov = Gtk.CssProvider()
 _overlay_css_prov.load_from_data(b"""
@@ -362,11 +362,11 @@ def _show_text_buffer_window(self, title: str,
     debounce_id: GLib.Source | None = None
 
     def _clear_highlight():
-        print("🔹 _clear_highlight", _t0())
+        # print("🔹 _clear_highlight", _t0())
         buf = tvw.get_buffer()
         buf.remove_tag_by_name("highlight", buf.get_start_iter(), buf.get_end_iter())
         buf.remove_tag_by_name("current",   buf.get_start_iter(), buf.get_end_iter())
-        print("🔹 _clear_highlight() done", _t0())
+        # print("🔹 _clear_highlight() done", _t0())
 
     def _apply_current(idx: int):
         """update current match tag + scroll (no bounds check)."""
@@ -380,12 +380,12 @@ def _show_text_buffer_window(self, title: str,
             s, e = matches[current]
             buf.apply_tag_by_name("current", s, e)
             tvw.scroll_to_iter(s, 0.10, False, 0, 0)
-        print(f"🔹 _apply_current → idx={current}")   # ← debug
+        # print(f"🔹 _apply_current → idx={current}")   # ← debug
 
     def _highlight_and_collect(query: str):
         """(re)collect hits & paint tags; returns len(matches)."""
         nonlocal matches, current
-        print("🔹 _highlight_and_collect", _t0()) 
+        # print("🔹 _highlight_and_collect", _t0()) 
         matches, current = [], -1
         buf = tvw.get_buffer()
         _clear_highlight()
@@ -405,7 +405,7 @@ def _show_text_buffer_window(self, title: str,
             matches.append((s, e))
             buf.apply_tag_by_name("highlight", s, e)
             it = e
-        print(f"🔹 forward_search loops={loops}, hits={len(matches)}")  # ← debug
+        # print(f"🔹 forward_search loops={loops}, hits={len(matches)}")  # ← debug
 
         if matches:
             _apply_current(0)       # select first hit
@@ -414,10 +414,10 @@ def _show_text_buffer_window(self, title: str,
     # widgets
     search   = Gtk.SearchEntry(hexpand=True)
     # search.set_property("im-module", "simple") 
-    search.connect(           # fires before any Python handler
-        "insert-text",
-        lambda e, txt, l, pos: print("🔹 insert‑text", txt, _t0())
-    )
+    # search.connect(           # fires before any Python handler
+    #     "insert-text",
+    #     lambda e, txt, l, pos: print("🔹 insert‑text", txt, _t0())
+    # )
     prev_btn = Gtk.Button(icon_name="go-up-symbolic")
     next_btn = Gtk.Button(icon_name="go-down-symbolic")
     counter  = Gtk.Label(label="0 of 0")
@@ -434,27 +434,31 @@ def _show_text_buffer_window(self, title: str,
         next_btn.set_sensitive(bool(matches))
 
     def _search_now(query: str):
-        print("🔹 _search_now", _t0()) 
+        # print("🔹 _search_now", _t0()) 
         _highlight_and_collect(query)
         _update_counter()
 
     def _on_search_changed(entry):
         nonlocal debounce_id
-        print("🔹 _on_search_changed START", _t0())    
         query = entry.get_text().strip()
-        print(f"🔹 on_search_changed → '{query}'")     # ← debug
+
+        # ---- 1.  kill any previous timer safely --------------------
         if debounce_id:
             GLib.source_remove(debounce_id)
+            debounce_id = 0                 # ← reset so we don’t reuse it 🎯
 
-        if query == "":          # clear immediately
+        if query == "":                      # clear immediately
             _search_now("")
-            debounce_id = None
             return
 
-        # run 120 ms later (debounce)
-        debounce_id = GLib.timeout_add(120, lambda:
-            (_search_now(query) or False)
-        )
+        # ---- 2.  debounce: fire once after 120 ms ------------------
+        def _fire_once(_query):
+            nonlocal debounce_id
+            _search_now(_query)
+            debounce_id = 0                 # timer is gone
+            return False                    # → remove source
+
+        debounce_id = GLib.timeout_add(120, _fire_once, query)
 
     def _nav(offset: int, *_):
         if not matches:
@@ -491,7 +495,10 @@ def _show_text_buffer_window(self, title: str,
 
     # ── 9.   tidy‑up helper (closes viewer) ───────────────────────────
     def _close(*_):
-        if debounce_id: GLib.source_remove(debounce_id)
+        nonlocal debounce_id
+        if debounce_id:                      # same safety net here
+            GLib.source_remove(debounce_id)
+            debounce_id = 0
         style_mgr.disconnect(scheme_sig)
         for attr in ("_textbuf_overlay", "_backdrop_overlay"):
             w = getattr(self, attr, None)
@@ -566,7 +573,7 @@ def _ensure_highlight_tag(self, buffer: Gtk.TextBuffer):
     light_cur_color = Gdk.RGBA();
     light_cur_color.parse("#61ff90")  #  80 % L*
     dark_cur_color  = Gdk.RGBA();
-    dark_cur_color.parse("#00775D")   #  50 % L*
+    dark_cur_color.parse("#008467")   #  50 % L*
     cur_tag.set_property("background-rgba", dark_cur_color if dark else light_cur_color)
 
 def _refresh_highlight_tags(self):

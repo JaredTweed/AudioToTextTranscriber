@@ -191,6 +191,7 @@ class WhisperApp(Adw.Application):
         Adw.Application.do_startup(self)
         self.window = Adw.ApplicationWindow(application=self, title=self.title)
         self.window.set_default_size(600, 800)
+        self.window.connect("close-request", lambda *a: (self.quit(), False)[1])
         self._build_ui()
         self._setup_dnd()
         self._update_model_btn()
