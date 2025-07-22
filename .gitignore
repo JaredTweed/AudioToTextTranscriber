@@ -11,3 +11,4 @@ whisper-cli
 models/
 src/flatpak/
 __pycache__/
+whisper.cpp/

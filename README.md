@@ -11,7 +11,8 @@
 
 Run `./build.sh` from the root directory.
 
-If you want to build it quicker for less accurate testing (e.g.,the transcription won't work), run `python3 -m src.audio_to_text_transcriber.main` from the root directory.
+If you want to build it quicker for less accurate testing (e.g.,the transcription won't work), run `python3 -m src.audio_to_text_transcriber.main` from the root directory. If you want the transcription to work with this command, install and extract `https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.7.6.zip` with the name `whisper.cpp` in the same directory as the python files (i.e., `./src/audio_to_text_transcriber/`), which can be done by merely running `curl -L https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.7.6.zip -o /tmp/whisper.zip && unzip -q /tmp/whisper.zip && mv whisper.cpp-1.7.6 ./src/audio_to_text_transcriber/whisper.cpp && rm /tmp/whisper.zip` from the root directory.
+ 
 
 ## Where to get audio to test this
 
