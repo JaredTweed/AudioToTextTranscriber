@@ -72,6 +72,22 @@ modules:
         packagetype: bdist_wheel
         
         
+  # - name: whisper-src
+  #   buildsystem: cmake-ninja
+  #   sources:
+  #     - type: archive
+  #       url: https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.7.6.zip
+  #       sha256: 8c579f4468fc23ddd64092ca9d8f3933d831a358ae9b7fcc09b43d9496a020c5
+  #       strip-components: 1
+
+  #   config-opts:
+  #     - -DCMAKE_BUILD_TYPE=Release
+
+  #   build-commands:
+  #     - install -d  /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp
+  #     - cp -a . /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp
+
+
   - name: whisper-src
     buildsystem: cmake-ninja
     sources:
@@ -82,10 +98,48 @@ modules:
 
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
+      - -DWHISPER_BUILD_TESTS=OFF
+      - -DWHISPER_BUILD_EXAMPLES=ON   # keeps the CLI target we need
 
     build-commands:
       - install -d  /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp
       - cp -a . /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp
+
+    post-install:
+      - PKG_DIR=/app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp
+
+      # Ensure target dirs exist
+      - install -d /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/build/bin
+      - install -d /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/models
+
+      # Copy the only two runtime artifacts we need
+      - install -Dm755 build/bin/whisper-cli /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/build/bin/whisper-cli
+      - install -Dm755 models/download-ggml-model.sh /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/models/download-ggml-model.sh
+
+      # Delete docs & misc text
+      - find /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp -type f -iname '*.md'  -delete
+      - find /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp -type f -iname '*.yml' -delete
+
+      # Drop build scripts & cmake helpers
+      - rm -f  /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/CMakeLists.txt
+      - rm -f  /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/Makefile
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/cmake
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/.github
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/.examples
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/examples
+
+      # # Optionally prune all source once binary is copied
+      # - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/src # needed, I think
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/ggml
+      # - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/include # needed, I think
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/tests
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/bindings
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/scripts
+      - rm -rf /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/docker
+
+      # Keep only bin/ under build/
+      - find /app/lib/python3.12/site-packages/audio_to_text_transcriber/whisper.cpp/build -mindepth 1 -maxdepth 1 ! -name bin -exec rm -rf {} +
+
 
 
   - name: pyyaml
