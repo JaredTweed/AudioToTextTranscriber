@@ -54,7 +54,7 @@ class WhisperApp(Adw.Application):
         # print(f"ls of source directory parent: {os.listdir(os.path.dirname(sd))}")
         # print(f"ls of source directory parent parent: {os.listdir(os.path.dirname(os.path.dirname(sd)))}")
         self.bin_path = shutil.which("whisper-cli") or os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
-        self.download_script = os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
+        self.download_script = "/app/bin/download-ggml-model.sh"
         data_dir = os.getenv(
             "AUDIO_TO_TEXT_TRANSCRIBER_DATA_DIR",
             os.path.join(GLib.get_user_data_dir(), "AudioToTextTranscriber")
