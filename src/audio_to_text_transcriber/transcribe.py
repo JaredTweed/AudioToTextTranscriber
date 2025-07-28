@@ -244,6 +244,15 @@ def _start_transcription(self, files, model_path, out_dir, core):
     self._red(self.trans_btn)
     self.job_start_time = time.time() 
 
+    # inside _start_transcription(), right after you switch the button to “Cancel”
+    self.is_transcribing = True
+    if getattr(self, 'settings_dialog', None):
+        GLib.idle_add(self._set_settings_lock, True)
+
+    # also disable the “Timestamps” menu action while running
+    act = self.lookup_action("toggle-timestamps")
+    if act: act.set_enabled(False)
+
     # timer id for the GLib timeout; 0 / None means “no timer running”
     self.countdown_source = None
     # ── length‑aware progress bookkeeping ───────────────────────────────
@@ -311,6 +320,10 @@ def _update_eta(self):
 
 
 def _worker(self, model_path, files, out_dir, core):
+    if not self.bin_path:
+        self._error("Cannot find 'whisper-cli', run ./build.sh")
+        return
+
     total = len(files)
     for idx, file_path in enumerate(files, 1):
         self._file_start_time = time.time()  
@@ -481,6 +494,8 @@ def _worker(self, model_path, files, out_dir, core):
                 file_data['buffer'] = None
                 file_data['view']   = None    
 
+    GLib.idle_add(self._unlock_settings_now)
+
     if self.cancel_flag:
         self._gui_status("Cancelled")
         GLib.idle_add(self._reset_btn)
@@ -498,3 +513,5 @@ def _worker(self, model_path, files, out_dir, core):
             GLib.source_remove(self.countdown_source)
             self.countdown_source = None
         GLib.idle_add(self.trans_btn.set_sensitive, False)
+
+

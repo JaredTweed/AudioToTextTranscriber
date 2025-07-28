@@ -114,6 +114,7 @@ def on_settings(self, action, param):
     self.model_btn.connect("clicked", self.on_model_btn)
     model_action_row.add_suffix(self.model_btn)
     model_group.add(model_action_row)
+    self.model_action_row = model_action_row
     page.add(model_group)
 
     transcription_group = Adw.PreferencesGroup()
@@ -127,8 +128,43 @@ def on_settings(self, action, param):
     transcription_group.add(timestamps_row)
     page.add(transcription_group)
 
+    self.timestamps_row = timestamps_row
+
     self._refresh_model_menu()
     self._update_model_btn()
 
     dlg.connect("destroy", lambda d: setattr(self, 'settings_dialog', None))
+    self._set_settings_lock(bool(getattr(self, 'is_transcribing', False)))
     dlg.present(self.window)
+
+
+def _set_settings_lock(self, locked: bool):
+    """
+    When locked=True (transcribing), disable every control except Appearance.
+    """
+    for w in (
+        getattr(self, 'output_settings_row', None),  # Output directory
+        getattr(self, 'model_combo', None),          # Model dropdown
+        getattr(self, 'model_btn', None),            # Install/Delete button
+        getattr(self, 'model_action_row', None),     # << NEW: grey out the whole row
+        getattr(self, 'timestamps_row', None),       # Include timestamps
+    ):
+        if w:
+            w.set_sensitive(not locked)
+
+def _unlock_settings_now(self):
+    """
+    Clear the transcribing flag, re-enable the menu toggle, and
+    restore all Settings controls immediately on the main loop.
+    """
+    self.is_transcribing = False
+
+    # re-enable “Include-timestamps” menu item
+    act = self.lookup_action("toggle-timestamps")
+    if act:
+        act.set_enabled(True)
+
+    # if the Settings dialog is open, flip its widgets back on
+    if getattr(self, "settings_dialog", None):
+        GLib.idle_add(self._set_settings_lock, False)
+

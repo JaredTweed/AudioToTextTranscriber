@@ -6,6 +6,7 @@ import os
 #    the ultra‑light ‘simple’ IM module we bypass IBus entirely.
 os.environ.setdefault("GTK_IM_MODULE", "gtk-im-context-simple")
 
+import glob
 import subprocess
 import threading
 import yaml
@@ -53,14 +54,16 @@ class WhisperApp(Adw.Application):
         # print(f"ls of source directory: {os.listdir(sd)}")
         # print(f"ls of source directory parent: {os.listdir(os.path.dirname(sd))}")
         # print(f"ls of source directory parent parent: {os.listdir(os.path.dirname(os.path.dirname(sd)))}")
-        self.bin_path = shutil.which("whisper-cli") or os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
-        self.download_script = "/app/bin/download-ggml-model.sh"
+        self.bin_path = shutil.which("whisper-cli") or os.path.join(sd, "..", "..", "build-dir", "files", "bin", "whisper-cli") or os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
+        self.download_script = "/app/bin/download-ggml-model.sh" or os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
+        print(f"Binary path: {self.bin_path}\nDownload script path: {self.download_script}")
 
-        # Check if the download script exists in the Flatpak path or the repo directory
-        flatpak_path = "/app/bin/download-ggml-model.sh"
-        python_path = os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
-        if os.path.exists(flatpak_path): self.download_script = flatpak_path
-        else: self.download_script = python_path
+
+        # # Check if the download script exists in the Flatpak path or the repo directory
+        # flatpak_path = "/app/bin/download-ggml-model.sh"
+        # python_path = 
+        # if os.path.exists(flatpak_path): self.download_script = flatpak_path
+        # else: self.download_script = python_path
 
         data_dir = os.getenv(
             "AUDIO_TO_TEXT_TRANSCRIBER_DATA_DIR",
@@ -183,6 +186,8 @@ class WhisperApp(Adw.Application):
                 'save_settings',
                 '_on_timestamps_toggled',
                 'on_settings',
+                '_set_settings_lock',
+                '_unlock_settings_now',
             ]
         }
 
