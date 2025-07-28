@@ -14,6 +14,7 @@ finish-args:
   - --filesystem=xdg-run/gvfs
   - --filesystem=xdg-music
   - --filesystem=xdg-download
+  - --filesystem=home
   - --socket=pulseaudio
   - --device=all
   
