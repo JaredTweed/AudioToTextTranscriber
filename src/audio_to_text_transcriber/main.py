@@ -55,6 +55,13 @@ class WhisperApp(Adw.Application):
         # print(f"ls of source directory parent parent: {os.listdir(os.path.dirname(os.path.dirname(sd)))}")
         self.bin_path = shutil.which("whisper-cli") or os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
         self.download_script = "/app/bin/download-ggml-model.sh"
+
+        # Check if the download script exists in the Flatpak path or the repo directory
+        flatpak_path = "/app/bin/download-ggml-model.sh"
+        python_path = os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
+        if os.path.exists(flatpak_path): self.download_script = flatpak_path
+        else: self.download_script = python_path
+
         data_dir = os.getenv(
             "AUDIO_TO_TEXT_TRANSCRIBER_DATA_DIR",
             os.path.join(GLib.get_user_data_dir(), "AudioToTextTranscriber")
