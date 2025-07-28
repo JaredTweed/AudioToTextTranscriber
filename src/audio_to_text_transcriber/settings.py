@@ -58,7 +58,7 @@ def _on_timestamps_toggled(self, switch, _):
 def on_settings(self, action, param):
     dlg = Adw.PreferencesDialog()
     dlg.set_title("Settings")
-    dlg.set_size_request(480, 640)
+    dlg.set_size_request(300, 150)
     self.settings_dialog = dlg
     page = Adw.PreferencesPage()
     page.set_title("General")
