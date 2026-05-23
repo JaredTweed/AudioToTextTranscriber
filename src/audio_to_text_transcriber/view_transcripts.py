@@ -2,13 +2,10 @@
 
 # view_transcripts.py
 import gi
-import os, mmap
+import os
+import mmap
 import re
-import subprocess
 import threading
-import yaml
-import shutil
-from pathlib import Path
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version("GtkSource", "5")
@@ -152,7 +149,7 @@ def _open_transcript_file(self, file_path):
         Gio.AppInfo.launch_default_for_uri(
             Gio.File.new_for_path(file_path).get_uri(), None
         )
-    except subprocess.CalledProcessError as e:
+    except GLib.Error as e:
         GLib.idle_add(self._error, f"Failed to open transcript: {e}")
 
 def on_search_changed(self, entry: Gtk.SearchEntry):
@@ -194,15 +191,18 @@ def _update_transcripts_list(
         1.  Keep the file immediately if its **name** contains the term.
         2.  Fallback: stream‑scan the file in 8‑KB chunks (no full read).
     """
-    out_dir = self.output_directory or os.path.expanduser("~/Downloads")
+    out_dir = self.output_directory or getattr(self, "default_output_directory", "")
     matches: list[str] = []
     hay = search_text.lower() if search_text else ""
     hay_bytes  = hay.encode()
 
     try:
+        if not out_dir or not os.path.isdir(out_dir):
+            GLib.idle_add(self._rebuild_transcript_rows, [])
+            return
         for entry in os.scandir(out_dir):
             if cancel_evt.is_set(): return   
-            if not entry.name.endswith("_transcribed.txt"):
+            if not entry.is_file() or not entry.name.endswith("_transcribed.txt"):
                 continue
 
             # ① empty search → accept all
@@ -217,6 +217,8 @@ def _update_transcripts_list(
 
             # ③ slow path: stream‑scan file contents
             try:
+                if entry.stat().st_size == 0:
+                    continue
                 with open(entry.path, "rb", 0) as fh, \
                      mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mm:
                     # Compile once per scan and re‑use for every file
@@ -226,7 +228,7 @@ def _update_transcripts_list(
 
                     if _ci_pat.search(mm):           # ← case‑insensitive
                         matches.append(entry.path)
-            except OSError:
+            except (OSError, ValueError):
                 # unreadable file → silently skip
                 pass
 
@@ -235,10 +237,14 @@ def _update_transcripts_list(
         return
 
     # Push UI update onto the main loop
+    if cancel_evt.is_set():
+        return
     GLib.idle_add(self._rebuild_transcript_rows, matches)
 
 
 def _rebuild_transcript_rows(self, matches: list[str]):
+    if not self.transcripts_group:
+        return False
     # 1. Remove rows we previously inserted
     for t in self.transcript_items:
         if t['row'].get_parent():
@@ -254,10 +260,11 @@ def _rebuild_transcript_rows(self, matches: list[str]):
     if not matches:
         self.no_transcripts_row = Adw.ActionRow()
         self.no_transcripts_row.set_title("No transcripts found")
-        out_dir = self.output_directory or os.path.expanduser("~/Downloads")
+        out_dir = self.output_directory or getattr(self, "default_output_directory", "")
         self.no_transcripts_row.set_subtitle(f"No \"_transcribed.txt\" files in {_hp(out_dir)}")
         self.transcripts_group.add(self.no_transcripts_row)
-        return
+        return False
 
     for path in sorted(matches):
         self.add_transcript_to_list(os.path.basename(path), path)
+    return False

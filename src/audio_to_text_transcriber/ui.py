@@ -1,13 +1,8 @@
 
 # ui.py
 import gi
-import os, mmap
-import re
+import os
 import subprocess
-import threading
-import yaml
-import shutil
-from pathlib import Path
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version("GtkSource", "5")
@@ -23,22 +18,24 @@ _overlay_css_prov.load_from_data(b"""
 #overlay_backdrop { background-color: rgba(0,0,0,0.40); }
 #overlay_viewer   { background-image:none; background-color:@window_bg_color; }
 """)
-Gtk.StyleContext.add_provider_for_display(
-    Gdk.Display.get_default(), _overlay_css_prov,
-    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-)
 
 _viewer_css_prov = Gtk.CssProvider()
 _viewer_css_prov.load_from_data(b"""
 #overlay_viewer { background-image:none; background-color:@window_bg_color; }
 """)
-Gtk.StyleContext.add_provider_for_display(
-    Gdk.Display.get_default(),
-    _viewer_css_prov,
-    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-)
+
+def _add_css_provider(provider):
+    display = Gdk.Display.get_default()
+    if display:
+        Gtk.StyleContext.add_provider_for_display(
+            display,
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
 def create_view_switcher_ui(self):
+    _add_css_provider(_overlay_css_prov)
+    _add_css_provider(_viewer_css_prov)
     self.stack = Adw.ViewStack()
     self.stack.set_vexpand(True)
     self.stack.set_hexpand(True)
@@ -309,11 +306,7 @@ def _show_text_buffer_window(self, title: str,
         self._viewer_css.load_from_data(b"""
             #overlay_viewer { background: @window_bg_color; }
         """)
-        Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(),
-            self._viewer_css,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        _add_css_provider(self._viewer_css)
 
     # ── 5.   header bar with a close button ───────────────────────────
     tv   = Adw.ToolbarView()
@@ -524,7 +517,7 @@ def _show_file_content(self, file_data):
         if not dest:
             # derive it from the original audio filename
             out_dir = getattr(self, 'output_directory',
-                              os.path.expanduser("~/Downloads"))
+                              getattr(self, "default_output_directory", ""))
             base = os.path.splitext(os.path.basename(file_data['path']))[0] + "_transcribed.txt"
             dest = os.path.join(out_dir, base)
 
@@ -661,7 +654,7 @@ def on_about(self, action, param):
         transient_for=self.window,
         application_name=self.title,
         application_icon="io.github.JaredTweed.AudioToTextTranscriber",
-        version="1.0",
+        version="1.0.1",
         developers=["Jared Tweed", "Mohammed Asif Ali Rizvan"],
         license_type=Gtk.License.GPL_3_0,
         comments="A GUI for whisper.cpp to transcribe audio files.",
@@ -672,6 +665,7 @@ def on_about(self, action, param):
 def on_toggle_timestamps(self, action, param):
     self.ts_enabled = not self.ts_enabled
     action.set_state(GLib.Variant.new_boolean(self.ts_enabled))
+    self.save_settings()
 
 def _green(self, b):
     b.add_css_class("suggested-action")
@@ -697,10 +691,6 @@ def _reset_btn(self):
         self.add_more_button.set_label("Add Audio Files")
         self.add_more_button.set_visible(True)
         try:
-            self.add_more_button.disconnect_by_func(lambda btn: self.stack.set_visible_child_name("transcripts"))
-        except TypeError:
-            pass
-        try:
             self.add_more_button.disconnect_by_func(self.on_add_audio)
         except TypeError:
             pass
@@ -719,7 +709,9 @@ def _yes_no(self, msg, callback):
     dialog.present(parent)
 
 def _error(self, msg):
-    parent = getattr(self, 'settings_dialog', None) or self.window
+    if not getattr(self, "toast_overlay", None):
+        print(msg)
+        return
     toast = Adw.Toast(title=msg)
     toast.set_timeout(5)
     self.toast_overlay.add_toast(toast)
@@ -766,11 +758,7 @@ def _build_ui(self):
             -gtk-icon-size: 16px;
         }
     """.encode('utf-8'))
-    Gtk.StyleContext.add_provider_for_display(
-        Gdk.Display.get_default(),
-        css_provider,
-        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-    )
+    _add_css_provider(css_provider)
 
     self.header_bar = Adw.HeaderBar()
     self.header_bar.add_css_class("flat")
@@ -858,7 +846,15 @@ def _on_browse_out_response(self, dialog, result):
     try:
         folder = dialog.select_folder_finish(result)
         if folder:
-            self.output_directory = folder.get_path()
+            path = folder.get_path()
+            if not path:
+                self._error("The selected output folder is not available as a local path.")
+                return
+            path = self._normal_output_directory(path)
+            if not os.path.isdir(path) or not os.access(path, os.W_OK):
+                self._error("The selected output folder is not writable.")
+                return
+            self.output_directory = path
             if self.output_settings_row:
                 self.output_settings_row.set_subtitle(_hp(self.output_directory))
                 self.save_settings()
@@ -891,4 +887,3 @@ def _on_window_dnd_drop(self, drop_target, value, x, y):
         return False                         # let other handlers ignore it
     # Re‑use the original drop logic
     return self._on_dnd_drop(drop_target, value, x, y)
-

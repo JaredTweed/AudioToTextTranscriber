@@ -4,15 +4,28 @@ import os
 import re
 import subprocess
 import threading
-import yaml
-import shutil
 import time
-from pathlib import Path
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject
 
 from .helpers import human_path as _hp
+
+def _transcript_path(out_dir, audio_path, used_paths=None):
+    used_paths = used_paths if used_paths is not None else set()
+    stem = os.path.splitext(os.path.basename(audio_path))[0]
+    candidate = os.path.join(out_dir, f"{stem}_transcribed.txt")
+    if candidate not in used_paths:
+        used_paths.add(candidate)
+        return candidate
+    parent = os.path.basename(os.path.dirname(audio_path)) or "audio"
+    candidate = os.path.join(out_dir, f"{stem}_{parent}_transcribed.txt")
+    suffix = 2
+    while candidate in used_paths:
+        candidate = os.path.join(out_dir, f"{stem}_{parent}_{suffix}_transcribed.txt")
+        suffix += 1
+    used_paths.add(candidate)
+    return candidate
 
 def on_add_audio(self, _):
     choice_dialog = Adw.AlertDialog(
@@ -90,11 +103,13 @@ def _collect_audio_files(self, files):
     seen.update(item['path'] for item in self.progress_items)
     def _add_if_ok(p):
         path = p.get_path() if isinstance(p, Gio.File) else p
-        if path and path.lower().endswith(audio_ext) and path not in seen:
+        if path and os.path.isfile(path) and path.lower().endswith(audio_ext) and path not in seen:
             found.append(path)
             seen.add(path)
     for p in files:
         path = p.get_path() if isinstance(p, Gio.File) else p
+        if not path:
+            continue
         if os.path.isfile(path):
             _add_if_ok(path)
         elif os.path.isdir(path):
@@ -168,21 +183,23 @@ def on_transcribe(self, _):
 
     # Queue in *visual* order (top‑to‑bottom in the list)
     files = [item['path'] for item in self.progress_items]
-    out_dir = getattr(self, 'output_directory', None) or os.path.expanduser("~/Downloads")
+    out_dir = getattr(self, 'output_directory', None) or getattr(self, "default_output_directory", None)
 
     if not files:
         self._error("No audio files selected.")
         return
 
-    if not out_dir or not os.path.isdir(out_dir):
+    if not out_dir or not os.path.isdir(out_dir) or not os.access(out_dir, os.W_OK):
         self._error("Choose a valid output folder in settings.")
         return
 
     conflicting_files = []
     non_conflicting_files = []
+    transcript_targets = {}
+    used_destinations = set()
     for file_path in files:
-        filename = os.path.basename(file_path)
-        dest = os.path.join(out_dir, os.path.splitext(filename)[0] + "_transcribed.txt")
+        dest = _transcript_path(out_dir, file_path, used_destinations)
+        transcript_targets[file_path] = dest
         if os.path.isfile(dest) and os.path.getsize(dest) > 0:
             conflicting_files.append(file_path)
         else:
@@ -197,10 +214,10 @@ def on_transcribe(self, _):
         dialog.add_response("skip", "Skip Conflicting")
         dialog.add_response("cancel", "Cancel")
         dialog.set_response_appearance("overwrite", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", lambda d, r: self._on_conflict_response(r, conflicting_files, non_conflicting_files, model_path, out_dir, core))
+        dialog.connect("response", lambda d, r: self._on_conflict_response(r, conflicting_files, non_conflicting_files, model_path, out_dir, core, transcript_targets))
         dialog.present(self.window)
     else:
-        self._start_transcription(files, model_path, out_dir, core)
+        self._start_transcription(files, model_path, out_dir, core, transcript_targets)
 
 def _reset_rows_if_needed(self):
     for file_data in self.progress_items:
@@ -219,7 +236,7 @@ def _reset_rows_if_needed(self):
             # Bring row back to “waiting” with its default subtitle
             self.update_file_status(file_data, 'waiting', default_sub)
 
-def _on_conflict_response(self, response, conflicting_files, non_conflicting_files, model_path, out_dir, core):
+def _on_conflict_response(self, response, conflicting_files, non_conflicting_files, model_path, out_dir, core, transcript_targets=None):
     # helper: walk the *display* list once and keep items that match
     def _ordered_subset(paths_set):
         return [item['path'] for item in self.progress_items
@@ -227,7 +244,7 @@ def _on_conflict_response(self, response, conflicting_files, non_conflicting_fil
 
     if response == "overwrite":
         wanted = _ordered_subset(set(non_conflicting_files + conflicting_files))
-        self._start_transcription(wanted, model_path, out_dir, core)
+        self._start_transcription(wanted, model_path, out_dir, core, transcript_targets)
 
     elif response == "skip":
         for fp in conflicting_files:
@@ -236,9 +253,15 @@ def _on_conflict_response(self, response, conflicting_files, non_conflicting_fil
                 GLib.idle_add(self.update_file_status, file_data,
                               'skipped', "Skipped due to existing transcription")
         wanted = _ordered_subset(set(non_conflicting_files))
-        self._start_transcription(wanted, model_path, out_dir, core)
+        if not wanted:
+            self._gui_status("All selected files were skipped")
+            return
+        self._start_transcription(wanted, model_path, out_dir, core, transcript_targets)
 
-def _start_transcription(self, files, model_path, out_dir, core):
+def _start_transcription(self, files, model_path, out_dir, core, transcript_targets=None):
+    if not files:
+        self._error("No files to transcribe.")
+        return
     self.cancel_flag = False
     self.trans_btn.set_label("Cancel")
     self._red(self.trans_btn)
@@ -256,7 +279,7 @@ def _start_transcription(self, files, model_path, out_dir, core):
     # timer id for the GLib timeout; 0 / None means “no timer running”
     self.countdown_source = None
     # ── length‑aware progress bookkeeping ───────────────────────────────
-    self.total_secs       = sum(_audio_seconds(f) for f in files) or 1
+    self.total_secs       = sum(_audio_seconds(f) for f in files) or float(len(files))
     self.done_secs        = 0.0      # seconds already fully processed
     self.cur_file_secs    = 0.0      # duration of the file currently in flight
     self.overall_pct      = 0.0
@@ -275,7 +298,7 @@ def _start_transcription(self, files, model_path, out_dir, core):
     self.countdown_source = GLib.timeout_add_seconds(1, self._update_eta)
 
     GLib.idle_add(self.status_lbl.set_label, "Transcription Started")
-    threading.Thread(target=self._worker, args=(model_path, files, out_dir, core), daemon=True).start()
+    threading.Thread(target=self._worker, args=(model_path, files, out_dir, core, transcript_targets or {}), daemon=True).start()
 
 # ── util: get duration (seconds) of an audio file ────────────────────────────
 def _audio_seconds(path: str) -> float:
@@ -319,9 +342,10 @@ def _update_eta(self):
     return True                          # keep the timeout running
 
 
-def _worker(self, model_path, files, out_dir, core):
+def _worker(self, model_path, files, out_dir, core, transcript_targets=None):
     if not self.bin_path:
-        self._error("Cannot find 'whisper-cli', run ./build.sh")
+        GLib.idle_add(self._error, "Cannot find 'whisper-cli'.")
+        GLib.idle_add(self._unlock_settings_now)
         return
 
     total = len(files)
@@ -349,29 +373,42 @@ def _worker(self, model_path, files, out_dir, core):
         # keep the streams separate:
         #   · stdout  → transcript (plus a few noisy lines we’ll drop)
         #   · stderr  → progress updates + errors
-        self.current_proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            errors='replace'
-        )
+        try:
+            self.current_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                errors='replace'
+            )
+        except Exception as e:
+            GLib.idle_add(self.update_file_status, file_data, 'error', "Failed to start")
+            GLib.idle_add(self.add_log_text, file_data, f"ERROR: {e}")
+            continue
 
         # ── WATCH STDERR FOR PERCENT, LIVE ───────────────────────────
+        stderr_lines = []
         def _watch_stderr(proc, row, idx, total):
             buf      = ""           # rolling buffer holding the current line
             last_pct = None         # last % we showed, to avoid spam
 
+            def _handle(line, last):
+                if not line:
+                    return last
+                new_pct = _maybe_update(line, row, idx, total, last)
+                if new_pct == last:
+                    stderr_lines.append(line)
+                return new_pct
+
             while True:
                 ch = proc.stderr.read(1)          # read *one* char at a time
                 if not ch:                        # EOF – done
-                    # process whatever is left in buf once more
-                    _maybe_update(buf, row, idx, total, last_pct)
+                    _handle(buf, last_pct)
                     break
 
                 if ch in ("\r", "\n"):            # line boundary
-                    last_pct = _maybe_update(buf, row, idx, total, last_pct)
+                    last_pct = _handle(buf, last_pct)
                     buf = ""                      # start fresh
                 else:
                     buf += ch
@@ -389,6 +426,8 @@ def _worker(self, model_path, files, out_dir, core):
 
             # ---------- length‑based progress --------------------------------
             processed_secs = self.done_secs + self.cur_file_secs * pct_f / 100.0
+            if processed_secs <= 0:
+                return last_pct
             overall_pct    = processed_secs / self.total_secs * 100.0
 
             elapsed   = time.time() - self.job_start_time
@@ -409,14 +448,16 @@ def _worker(self, model_path, files, out_dir, core):
             )
             return pct_str
 
-        threading.Thread(
+        stderr_thread = threading.Thread(
             target=_watch_stderr,
             args=(self.current_proc, file_data['row'], idx, total),
             daemon=True
-        ).start()
+        )
+        stderr_thread.start()
 
         # ── READ stdout and keep only the real transcript ───────────
         ts_line   = re.compile(r"^\[\d\d:\d\d:\d\d")   # with timestamps
+        transcript_lines = []
 
         for line in self.current_proc.stdout:
             if self.cancel_flag:
@@ -443,10 +484,14 @@ def _worker(self, model_path, files, out_dir, core):
                                                      "main:", "whisper_print_timings"))
 
             if keep:
-                GLib.idle_add(self.add_log_text, file_data, line.rstrip())
+                clean_line = line.rstrip()
+                transcript_lines.append(clean_line)
+                GLib.idle_add(self.add_log_text, file_data, clean_line)
 
-        self.current_proc.stdout.close()
+        if self.current_proc.stdout:
+            self.current_proc.stdout.close()
         self.current_proc.wait()
+        stderr_thread.join(timeout=2)
 
         # update counters for length‑aware progress
         self.done_secs += self.cur_file_secs
@@ -457,7 +502,7 @@ def _worker(self, model_path, files, out_dir, core):
         else:
             if self.current_proc.returncode != 0:
                 # read remaining stderr so we can show the error
-                err_msg = self.current_proc.stderr.read().strip()
+                err_msg = "\n".join(line for line in stderr_lines if line.strip()).strip()
                 GLib.idle_add(
                     self.update_file_status,
                     file_data, 'error',
@@ -469,31 +514,27 @@ def _worker(self, model_path, files, out_dir, core):
                     f"ERROR: {err_msg or 'process exited with code ' + str(self.current_proc.returncode)}"
                 )
             else:
-                dest_path = os.path.join(out_dir,
-                                        os.path.splitext(filename)[0] + "_transcribed.txt")
-                buffer    = file_data['buffer']          # local alias – crucial!
+                dest_path = (transcript_targets or {}).get(file_path) or _transcript_path(out_dir, file_path)
                 file_data['transcript_path'] = dest_path 
-
-                def _save(buf=buffer, dest=dest_path):
-                    if buf and buf.get_char_count() > 0:
-                        txt = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
-                        try:
-                            with open(dest, "w", encoding="utf-8") as f:
-                                f.write(txt)
-                        except Exception as e:
-                            print(f"Failed to save {dest}: {e}")
-                        # register in Transcripts pane exactly once
-                        if dest not in (item['path'] for item in self.transcript_items):
-                            GLib.idle_add(self.add_transcript_to_list,
-                                          os.path.basename(dest), dest)
-                    return False                         # stop the idle handler
-
-                GLib.idle_add(_save)
+                try:
+                    with open(dest_path, "w", encoding="utf-8") as f:
+                        if transcript_lines:
+                            f.write("\n".join(transcript_lines) + "\n")
+                        else:
+                            f.write("")
+                except Exception as e:
+                    GLib.idle_add(self.update_file_status, file_data, 'error', "Could not save transcript")
+                    GLib.idle_add(self.add_log_text, file_data, f"ERROR: Failed to save transcript: {e}")
+                    continue
+                if dest_path not in (item['path'] for item in self.transcript_items):
+                    GLib.idle_add(self.add_transcript_to_list,
+                                  os.path.basename(dest_path), dest_path)
                 GLib.idle_add(self.update_file_status, file_data, 'completed', "Completed successfully")
                 # Allow GC to reclaim memory – the text now lives on disk
                 file_data['buffer'] = None
                 file_data['view']   = None    
 
+    self.current_proc = None
     GLib.idle_add(self._unlock_settings_now)
 
     if self.cancel_flag:
@@ -513,5 +554,3 @@ def _worker(self, model_path, files, out_dir, core):
             GLib.source_remove(self.countdown_source)
             self.countdown_source = None
         GLib.idle_add(self.trans_btn.set_sensitive, False)
-
-

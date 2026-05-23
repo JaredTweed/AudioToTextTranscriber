@@ -1,6 +1,8 @@
 .flatpak-builder/
 build-dir/
 repo/
+repo.zip
+AudioToTextTranscriber.flatpak
 AudioSamples/
 
 *.zip

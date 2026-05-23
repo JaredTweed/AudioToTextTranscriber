@@ -1,21 +1,89 @@
 # settings.py
 import gi
 import os
-import re
-import subprocess
-import threading
 import yaml
-import shutil
-from pathlib import Path
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject
 
 from .helpers import human_path as _hp
 
+def _as_bool(value, default=True):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    return default if value is None else bool(value)
+
+def _is_document_portal_path(path):
+    if not path:
+        return False
+    portal_root = os.path.join(GLib.get_user_runtime_dir(), "doc")
+    path = os.path.abspath(path)
+    return path == portal_root or path.startswith(portal_root + os.sep)
+
+def _common_output_directories():
+    dirs = []
+    for user_dir in (
+        GLib.UserDirectory.DIRECTORY_DOWNLOAD,
+        GLib.UserDirectory.DIRECTORY_DOCUMENTS,
+        GLib.UserDirectory.DIRECTORY_DESKTOP,
+        GLib.UserDirectory.DIRECTORY_MUSIC,
+        GLib.UserDirectory.DIRECTORY_VIDEOS,
+    ):
+        path = GLib.get_user_special_dir(user_dir)
+        if path:
+            dirs.append(os.path.abspath(path))
+    dirs.append("/tmp")
+    return dirs
+
+def _document_portal_target(path):
+    if not _is_document_portal_path(path):
+        return None
+
+    portal_root = os.path.join(GLib.get_user_runtime_dir(), "doc")
+    try:
+        rel_parts = os.path.relpath(os.path.abspath(path), portal_root).split(os.sep)
+    except ValueError:
+        return None
+
+    if len(rel_parts) < 2 or rel_parts[0] in ("by-app", ".", ".."):
+        return None
+
+    exposed_parts = rel_parts[1:]
+    exposed_name = exposed_parts[0]
+    for base in _common_output_directories():
+        if os.path.basename(base) == exposed_name:
+            return os.path.join(base, *exposed_parts[1:])
+    return None
+
+def _normal_output_directory(self, path=None):
+    default_output = getattr(
+        self,
+        "default_output_directory",
+        GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD)
+        or os.path.join(os.path.expanduser("~"), "Downloads"),
+    )
+    path = path or default_output
+    old_sandbox_default = os.path.join(
+        GLib.get_user_data_dir(),
+        "AudioToTextTranscriber",
+        "transcripts",
+    )
+    if os.path.abspath(os.path.expanduser(path)) == os.path.abspath(old_sandbox_default):
+        return default_output
+    if _is_document_portal_path(path):
+        portal_target = _document_portal_target(path)
+        if portal_target:
+            return portal_target
+        return default_output
+    return os.path.abspath(os.path.expanduser(path))
+
 def load_settings(self):
     self.theme_index = 0
-    self.output_directory = os.path.expanduser("~/Downloads")
+    default_output = _normal_output_directory(self)
+    os.makedirs(default_output, exist_ok=True)
+    self.output_directory = default_output
     self.ts_enabled = True
     self.selected_model = ''
 
@@ -23,28 +91,45 @@ def load_settings(self):
         try:
             with open(self.settings_file, 'r') as f:
                 settings = yaml.safe_load(f) or {}
-            self.theme_index = settings.get('theme', 0)
-            self.output_directory = settings.get('output_directory', os.path.expanduser("~/Downloads"))
-            self.ts_enabled = settings.get('include_timestamps', True)
-            self.selected_model = settings.get('model', '')
+            self.theme_index = int(settings.get('theme', 0))
+            self.output_directory = _normal_output_directory(
+                self,
+                settings.get('output_directory', default_output)
+            )
+            self.ts_enabled = _as_bool(settings.get('include_timestamps', True), True)
+            self.selected_model = settings.get('model', '') or ''
         except Exception as e:
-            self._error(f"Error loading settings: {e}")
+            print(f"Error loading settings: {e}")
+
+    self.theme_index = min(max(self.theme_index, 0), 2)
+    if not os.path.isdir(self.output_directory) or not os.access(self.output_directory, os.W_OK):
+        self.output_directory = default_output
 
     style_manager = Adw.StyleManager.get_default()
     themes = [Adw.ColorScheme.DEFAULT, Adw.ColorScheme.FORCE_LIGHT, Adw.ColorScheme.FORCE_DARK]
     style_manager.set_color_scheme(themes[self.theme_index])
 
+def _selected_model_core(self):
+    if not getattr(self, "model_combo", None) or not getattr(self, "model_strings", None):
+        return getattr(self, "selected_model", "")
+    selected = self.model_combo.get_selected()
+    if selected == Gtk.INVALID_LIST_POSITION or selected >= self.model_strings.get_n_items():
+        return getattr(self, "selected_model", "")
+    return self.display_to_core.get(self.model_strings.get_string(selected), "")
+
 def save_settings(self):
+    self.selected_model = self._selected_model_core()
+    self.output_directory = _normal_output_directory(self, self.output_directory)
     settings = {
         'theme': self.theme_index,
-        'model': self.display_to_core.get(self.model_strings.get_string(self.model_combo.get_selected()), ''),
-        'output_directory': self.output_directory or os.path.expanduser("~/Downloads"),
+        'model': self.selected_model,
+        'output_directory': self.output_directory,
         'include_timestamps': self.ts_enabled
     }
     try:
         os.makedirs(self.settings_file.parent, exist_ok=True)
         with open(self.settings_file, 'w') as f:
-            yaml.dump(settings, f, default_style="'", default_flow_style=False)
+            yaml.safe_dump(settings, f, default_flow_style=False)
     except Exception as e:
         self._error(f"Error saving settings: {e}")
 
@@ -102,9 +187,9 @@ def on_settings(self, action, param):
     model_row.set_title("Model")
     model_row.set_subtitle("Choose transcription model")
     model_row.set_model(self.model_strings)
+    self.model_combo = model_row
     model_row.connect("notify::selected", self._on_model_combo_changed)
     model_group.add(model_row)
-    self.model_combo = model_row
     model_action_row = Adw.ActionRow()
     model_action_row.set_title("Model Management")
     model_action_row.set_subtitle("Install or remove the selected model")
@@ -167,4 +252,3 @@ def _unlock_settings_now(self):
     # if the Settings dialog is open, flip its widgets back on
     if getattr(self, "settings_dialog", None):
         GLib.idle_add(self._set_settings_lock, False)
-

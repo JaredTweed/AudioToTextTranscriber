@@ -6,10 +6,7 @@ import os
 #    the ultra‑light ‘simple’ IM module we bypass IBus entirely.
 os.environ.setdefault("GTK_IM_MODULE", "gtk-im-context-simple")
 
-import glob
-import subprocess
 import threading
-import yaml
 import shutil
 import weakref  
 from pathlib import Path
@@ -36,7 +33,10 @@ except ImportError as e:
 
 class WhisperApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="io.github.JaredTweed.AudioToTextTranscriber")
+        super().__init__(
+            application_id="io.github.JaredTweed.AudioToTextTranscriber",
+            flags=Gio.ApplicationFlags.HANDLES_OPEN,
+        )
         # WeakSet lets Python release the entry as soon as the last TextView is gone
         self._highlight_buffers: weakref.WeakSet = weakref.WeakSet()
         self.title = "Audio-To-Text Transcriber"
@@ -54,16 +54,27 @@ class WhisperApp(Adw.Application):
         # print(f"ls of source directory: {os.listdir(sd)}")
         # print(f"ls of source directory parent: {os.listdir(os.path.dirname(sd))}")
         # print(f"ls of source directory parent parent: {os.listdir(os.path.dirname(os.path.dirname(sd)))}")
-        self.bin_path = shutil.which("whisper-cli") or os.path.join(sd, "..", "..", "build-dir", "files", "bin", "whisper-cli") or os.path.join(self.repo_dir, "build", "bin", "whisper-cli")
-        self.download_script = "/app/bin/download-ggml-model.sh" or os.path.join(self.repo_dir, "models", "download-ggml-model.sh")
-        print(f"Binary path: {self.bin_path}\nDownload script path: {self.download_script}")
-
-
-        # # Check if the download script exists in the Flatpak path or the repo directory
-        # flatpak_path = "/app/bin/download-ggml-model.sh"
-        # python_path = 
-        # if os.path.exists(flatpak_path): self.download_script = flatpak_path
-        # else: self.download_script = python_path
+        self.bin_path = next(
+            (
+                path for path in (
+                    shutil.which("whisper-cli"),
+                    os.path.abspath(os.path.join(sd, "..", "..", "build-dir", "files", "bin", "whisper-cli")),
+                    os.path.join(self.repo_dir, "build", "bin", "whisper-cli"),
+                )
+                if path and os.path.isfile(path) and os.access(path, os.X_OK)
+            ),
+            None,
+        )
+        self.download_script = next(
+            (
+                path for path in (
+                    "/app/bin/download-ggml-model.sh",
+                    os.path.join(self.repo_dir, "models", "download-ggml-model.sh"),
+                )
+                if os.path.isfile(path) and os.access(path, os.X_OK)
+            ),
+            None,
+        )
 
         data_dir = os.getenv(
             "AUDIO_TO_TEXT_TRANSCRIBER_DATA_DIR",
@@ -71,6 +82,11 @@ class WhisperApp(Adw.Application):
         )
 
         os.makedirs(data_dir, exist_ok=True)
+        self.default_output_directory = (
+            GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD)
+            or os.path.join(str(Path.home()), "Downloads")
+        )
+        os.makedirs(self.default_output_directory, exist_ok=True)
         self.models_dir = os.path.join(data_dir, "models")
         os.makedirs(self.models_dir, exist_ok=True)
         self.display_to_core = {}
@@ -183,6 +199,11 @@ class WhisperApp(Adw.Application):
             ],
             settings: [
                 'load_settings',
+                '_selected_model_core',
+                '_is_document_portal_path',
+                '_common_output_directories',
+                '_document_portal_target',
+                '_normal_output_directory',
                 'save_settings',
                 '_on_timestamps_toggled',
                 'on_settings',
@@ -211,6 +232,21 @@ class WhisperApp(Adw.Application):
     def do_activate(self, *args):
         self.window.present()
 
+    def do_open(self, files, n_files, hint):
+        self.activate()
+        if not files:
+            return
+        new_paths = self._collect_audio_files(files)
+        for path in new_paths:
+            if path not in [item['path'] for item in self.progress_items]:
+                self.audio_store.append(path)
+                self.add_file_to_list(os.path.basename(path), path)
+        if new_paths:
+            self.stack.set_visible_child_name("transcribe")
+            toast = Adw.Toast(title=f"Added {len(new_paths)} file(s)")
+            toast.set_timeout(3)
+            self.toast_overlay.add_toast(toast)
+
     def create_action(self, name, callback):
         action = Gio.SimpleAction.new(name, None)
         action.connect("activate", callback)
@@ -220,7 +256,7 @@ class WhisperApp(Adw.Application):
 # Add this main function
 def main():
     app = WhisperApp()
-    app.run()
+    app.run(sys.argv)
 
 if __name__ == "__main__":
     main() # Call the main function

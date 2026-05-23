@@ -3,9 +3,7 @@ import gi
 import os
 import subprocess
 import threading
-import yaml
-import shutil
-from pathlib import Path
+import time
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Gio, Gdk, Adw, GObject
@@ -23,6 +21,8 @@ MODEL_SIZE_MB = {
 }
 
 def _on_model_combo_changed(self, dropdown, _):
+    core = self._get_model_name()
+    self.selected_model = "" if core == "None" else core
     self.save_settings()
     self._update_model_btn()
 
@@ -63,7 +63,7 @@ def _update_model_btn(self):
         return False
 
     if self.dl_info:
-        done = os.path.getsize(self.dl_info["target"]) // MB if os.path.isfile(self.dl_info["target"]) else 0
+        done = os.path.getsize(self.dl_info["target"]) // MB if os.path.isfile(self.dl_info["target"]) else self.dl_info.get("done_mb", 0)
         tot = self.dl_info["total_mb"] or "?"
         if self.model_btn:
             self.model_btn.set_label(f"Cancel Download {done} / {tot} MB")
@@ -97,6 +97,9 @@ def _update_model_btn(self):
     return exists
 
 def on_model_btn(self, _):
+    if not self.download_script:
+        self._error("Cannot find the model download script.")
+        return
     if self.dl_info:
         self.cancel_flag = True
         proc = self.dl_info.get("proc")
@@ -108,6 +111,9 @@ def on_model_btn(self, _):
                 proc.kill()
             self.dl_info["cancelled"] = True
             GLib.idle_add(self._on_download_done, False)
+        else:
+            self.dl_info["cancelled"] = True
+            GLib.idle_add(self._on_download_done, False)
         return
     selected_index = self.model_combo.get_selected()
     if selected_index == Gtk.INVALID_LIST_POSITION:
@@ -117,6 +123,7 @@ def on_model_btn(self, _):
     if not core:
         return
     target = self._model_target_path(core)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
     name = self._display_name(core)
     if os.path.isfile(target):
         self._yes_no(f"Delete model '{name}'?", lambda confirmed: self._on_delete_model(confirmed, target, core))
@@ -174,10 +181,15 @@ def _download_model_thread(self, core):
                     proc.kill()
                 GLib.idle_add(self._on_download_done, False)
                 return
-            line = proc.stdout.readline().strip()
+            line = proc.stdout.readline()
+            if not line:
+                time.sleep(0.05)
+                continue
+            line = line.strip()
             # if line:
             #     GLib.idle_add(self.status_lbl.set_label, line[:120])
-        proc.stdout.close()
+        if proc.stdout:
+            proc.stdout.close()
         proc.wait()
         GLib.idle_add(self._on_download_done, proc.returncode == 0)
     except Exception as e:
@@ -201,7 +213,7 @@ def _on_download_done(self, success):
     else:
         expected_mb = self.dl_info["total_mb"]
         actual_mb = os.path.getsize(target) // MB if os.path.isfile(target) else 0
-        if not success or (expected_mb and abs(actual_mb - expected_mb) > 5):
+        if not success or not os.path.isfile(target) or (expected_mb and abs(actual_mb - expected_mb) > 20):
             if os.path.isfile(target):
                 os.remove(target)
             self._error(f"Failed to download model “{name}”.")
@@ -243,9 +255,15 @@ def _refresh_model_menu(self):
     GLib.idle_add(self._update_model_btn)
 
     if self.selected_model:
+        selected_from_settings = False
         for i in range(self.model_strings.get_n_items()):
             display = self.model_strings.get_string(i)
             if self.display_to_core.get(display) == self.selected_model:
                 self.model_combo.set_selected(i)
+                selected_from_settings = True
                 break
+        if not selected_from_settings:
+            self.selected_model = current_core or self.display_to_core.get(
+                self.model_strings.get_string(selected_index), ""
+            )
     self.save_settings()

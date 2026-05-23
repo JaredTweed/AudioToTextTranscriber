@@ -1,21 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop">
+<component type="desktop-application">
   <id>io.github.JaredTweed.AudioToTextTranscriber</id>
   <name>Audio-to-Text Transcriber</name>
   <summary>Convert audio to text locally</summary>
 
-  <developer_name>Jared Tweed</developer_name>
-  <launchable type="desktop-id">
-    io.github.JaredTweed.AudioToTextTranscriber.desktop
-  </launchable>
+  <developer id="io.github.jaredtweed">
+    <name>Jared Tweed</name>
+  </developer>
+  <launchable type="desktop-id">io.github.JaredTweed.AudioToTextTranscriber.desktop</launchable>
 
   <!-- Licensing -->
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>GPL-3.0-or-later</project_license>
 
   <!-- Project links -->
-  <url type="homepage">https://github.com/JaredTweed/Audio-To-Text-Transcriber</url>
-  <url type="bugtracker">https://github.com/JaredTweed/Audio-To-Text-Transcriber/issues</url>
+  <url type="homepage">https://github.com/JaredTweed/AudioToTextTranscriber</url>
+  <url type="bugtracker">https://github.com/JaredTweed/AudioToTextTranscriber/issues</url>
+  <url type="vcs-browser">https://github.com/JaredTweed/AudioToTextTranscriber</url>
 
   <!-- Description -->
   <description>
@@ -27,7 +28,7 @@
     <p>
       Drag-and-drop one or many audio files, pick a Whisper model
       (downloaded on demand), and receive instant transcripts with
-      optional timestamps — no cloud required.
+      optional timestamps. No cloud service is required.
     </p>
   </description>
 
@@ -44,8 +45,15 @@
 
   <!-- Releases -->
   <releases>
+    <release version="1.0.1" date="2025-07-28">
+      <description>
+        <p>Improve Flatpak packaging and application sandbox integration.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2025-04-28">
-      <description>Initial Flathub release.</description>
+      <description>
+        <p>Initial release.</p>
+      </description>
     </release>
   </releases>
 </component>
