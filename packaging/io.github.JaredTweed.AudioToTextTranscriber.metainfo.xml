@@ -35,8 +35,20 @@
   <!-- Screenshots -->
   <screenshots>
     <screenshot type="default">
-      <image>https://github.com/JaredTweed/Audio-To-Text-Transcriber/releases/download/v1.0.0/main-window.png</image>
-      <caption>Transcribing MP3/WAV files</caption>
+      <image>https://raw.githubusercontent.com/JaredTweed/AudioToTextTranscriber/main/images/main-window.png</image>
+      <caption>Transcribe audio files with a local Whisper model</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/JaredTweed/AudioToTextTranscriber/main/images/settings-window.png</image>
+      <caption>Choose the output folder and transcription model</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/JaredTweed/AudioToTextTranscriber/main/images/transcripts-window.png</image>
+      <caption>Search completed transcripts</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/JaredTweed/AudioToTextTranscriber/main/images/transcript-window.png</image>
+      <caption>Review transcript text with search highlighting</caption>
     </screenshot>
   </screenshots>
 
